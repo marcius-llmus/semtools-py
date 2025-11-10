@@ -1,0 +1,1 @@
+# This package will contain the workspace management logic using LanceDB.
