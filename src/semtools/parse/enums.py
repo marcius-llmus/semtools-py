@@ -8,3 +8,9 @@ class JobStatus(StrEnum):
     PENDING = "PENDING"
     ERROR = "ERROR"
     CANCELED = "CANCELED"
+
+
+class ParseBackendType(StrEnum):
+    """Represents the type of parsing backend."""
+
+    LLAMA_PARSE = "llama-parse"

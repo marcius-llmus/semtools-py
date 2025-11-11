@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from ..config import APP_HOME_DIR
 
 @dataclass
 class LlamaParseConfig:
@@ -25,7 +26,7 @@ class LlamaParseConfig:
         }
     )
     cache_dir: Path = field(
-        default_factory=lambda: Path.home() / ".semtools_py" / "cache" / "parse"
+        default_factory=lambda: APP_HOME_DIR / "cache" / "parse"
     )
     skippable_extensions: List[str] = field(
         default_factory=lambda: [".md", ".markdown", ".txt"]

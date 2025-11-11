@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import math
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import lancedb
 import pyarrow as pa
@@ -17,6 +17,11 @@ class DocMeta:
     size_bytes: int
     mtime: int
 
+    def id(self) -> int:
+        """Generates a deterministic 32-bit signed integer ID from the path."""
+        h = hashlib.sha256(self.path.encode("utf-8")).digest()
+        return int.from_bytes(h[:4], byteorder="big", signed=True)
+
 
 @dataclass
 class LineEmbedding:
@@ -25,6 +30,11 @@ class LineEmbedding:
     path: str
     line_number: int
     embedding: List[float]
+
+    def id(self) -> int:
+        """Generates a deterministic 32-bit signed integer ID from path and line number."""
+        h = hashlib.sha256(f"{self.path}:{self.line_number}".encode("utf-8")).digest()
+        return int.from_bytes(h[:4], byteorder="big", signed=True)
 
 
 @dataclass
@@ -63,9 +73,7 @@ class Store:
         results = tbl.search().where(path_filter).to_list()
 
         return {
-            r["path"]: DocMeta(
-                path=r["path"], size_bytes=r["size_bytes"], mtime=r["mtime"]
-            )
+            r["path"]: DocMeta(path=r["path"], size_bytes=r["size_bytes"], mtime=r["mtime"])
             for r in results
         }
 
@@ -97,12 +105,14 @@ class Store:
         self._delete_document_metadata(paths)
 
         data = [
-            {"path": m.path, "size_bytes": m.size_bytes, "mtime": m.mtime} for m in metas
+            {"id": m.id(), "path": m.path, "size_bytes": m.size_bytes, "mtime": m.mtime}
+            for m in metas
         ]
 
         if "documents" not in self.db.table_names():
             schema = pa.schema(
                 [
+                    pa.field("id", pa.int32()),
                     pa.field("path", pa.string()),
                     pa.field("size_bytes", pa.int64()),
                     pa.field("mtime", pa.int64()),
@@ -124,6 +134,7 @@ class Store:
         dim = len(line_embeddings[0].embedding)
         data = [
             {
+                "id": le.id(),
                 "path": le.path,
                 "line_number": le.line_number,
                 "vector": le.embedding,
@@ -132,14 +143,15 @@ class Store:
         ]
 
         if "line_embeddings" not in self.db.table_names():
-            from lancedb.pydantic import LanceModel, Vector
-
-            class LineSchema(LanceModel):
-                path: str
-                line_number: int
-                vector: Vector(dim)
-
-            self.db.create_table("line_embeddings", schema=LineSchema, data=data)
+            schema = pa.schema(
+                [
+                    pa.field("id", pa.int32()),
+                    pa.field("path", pa.string()),
+                    pa.field("line_number", pa.int32()),
+                    pa.field("vector", pa.list_(pa.float32(), dim)),
+                ]
+            )
+            self.db.create_table("line_embeddings", data=data, schema=schema)
         else:
             tbl = self.db.open_table("line_embeddings")
             tbl.add(data)
@@ -149,29 +161,22 @@ class Store:
     def _ensure_line_vector_index(self) -> None:
         """Ensures a vector index exists for the line embeddings table."""
         tbl = self.db.open_table("line_embeddings")
-        indexes = tbl.list_indexes()
-        if not any(idx["name"] == "vector_idx" for idx in indexes):
+        indexes = tbl.list_indices()
+        if not indexes:
             try:
-                # num_partitions must be a power of 2
-                num_rows = len(tbl)
-                num_partitions = 2 ** math.floor(math.log2(max(1, num_rows / 256)))
-                if num_partitions == 0:
-                    num_partitions = 1
-
-                tbl.create_index(
-                    metric="cosine",
-                    num_partitions=num_partitions,
-                    num_sub_vectors=min(32, 2 ** math.floor(math.log2(max(1, num_rows / 1000)))),
-                    vector_column_name="vector",
-                    replace=True,
-                )
+                # Let LanceDB create an automatic index, similar to Rust's Index::Auto
+                tbl.create_index(metric="cosine")
             except Exception as e:
-                if "Not enough data to train" in str(e):
+                # Mirroring Rust's error handling for insufficient data for PQ training
+                if "Not enough data to train" in str(e) or "Requires 256 rows" in str(e):
                     print(
-                        "Warning: Skipping vector index creation due to insufficient data."
+                        "Warning: Skipping line embeddings vector index creation due to insufficient data. "
+                        "Database will use brute-force search."
                     )
                 else:
                     raise e
+        else:
+            tbl.compact_files()
 
     def get_all_document_paths(self) -> List[str]:
         """Gets all document paths in the workspace."""
@@ -192,11 +197,13 @@ class Store:
 
         if "line_embeddings" in table_names:
             line_table = self.db.open_table("line_embeddings")
-            if len(line_table.list_indexes()) > 0:
+            if len(line_table.list_indices()) > 0:
                 has_index = True
 
         return WorkspaceStats(
-            total_documents=doc_count, has_index=has_index, index_type="IVF_PQ" if has_index else None
+            total_documents=doc_count,
+            has_index=has_index,
+            index_type="IVF_PQ" if has_index else None,
         )
 
     def search_line_embeddings(
@@ -218,9 +225,7 @@ class Store:
         results = query.to_list()
 
         ranked_lines = [
-            RankedLine(
-                path=r["path"], line_number=r["line_number"], distance=r["_distance"]
-            )
+            RankedLine(path=r["path"], line_number=r["line_number"], distance=r["_distance"])
             for r in results
         ]
 

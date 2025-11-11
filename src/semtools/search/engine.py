@@ -31,10 +31,10 @@ class SearchEngine:
             context = doc.lines[start_line:end_line]
             results.append(
                 SearchResult(
-                    file_path=doc.file_path,
+                    path=doc.path,
                     context_lines=context,
                     context_start_line=start_line,
-                    match_line_index=i,
+                    line_number=i,
                     distance=dist,
                 )
             )

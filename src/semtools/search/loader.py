@@ -50,5 +50,5 @@ class DocumentLoader:
         embeddings = self.model.encode(lines_for_embedding)
 
         return Document(
-            file_path=file_path, lines=lines, embeddings=np.array(embeddings)
+            path=file_path, lines=lines, embeddings=np.array(embeddings)
         )
