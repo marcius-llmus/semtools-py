@@ -12,13 +12,15 @@ from .config import LlamaParseConfig
 class LlamaParseBackend:
     """Orchestrates the document parsing process using the LlamaParse API."""
 
-    def __init__(self, config: LlamaParseConfig, verbose: bool = False):
+    def __init__(self, config_path: str, verbose: bool = False, timeout: int = 60):
+        config = LlamaParseConfig.from_config_file(Path(config_path))
         self.config = config
         self.verbose = verbose
-        # Use a namespaced cache directory to avoid conflicts
-        cache_dir = Path.home() / ".semtools_py" / "cache" / "parse"
-        self.cache_manager = CacheManager(cache_dir)
+        self.cache_manager = CacheManager(
+            config.cache_dir, config.skippable_extensions
+        )
         self.client = ParseClient(config, verbose)
+        self.timeout = timeout
 
     async def parse(self, files: List[str]) -> List[str]:
         """
@@ -29,7 +31,7 @@ class LlamaParseBackend:
         final_results = []
 
         # Use a single client for connection pooling, which is more efficient
-        async with httpx.AsyncClient(timeout=60.0) as http_client:
+        async with httpx.AsyncClient(timeout=self.timeout) as http_client:
             for file_path in files:
                 if self.cache_manager.should_skip_file(file_path):
                     if self.verbose:
@@ -53,7 +55,6 @@ class LlamaParseBackend:
 
         for result in processed_results:
             if isinstance(result, Exception):
-                # Mirror Rust's behavior of printing errors and continuing
                 print(f"Error processing a file: {result}")
             elif result:
                 final_results.append(result)

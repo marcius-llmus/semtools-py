@@ -33,8 +33,7 @@ def parse(config_path, backend, verbose, files):
         click.echo(f"Error: Unknown backend '{backend}'. Supported backends: llama-parse", err=True)
         sys.exit(1)
 
-    config = LlamaParseConfig.from_config_file(Path(config_path))
-    parser = LlamaParseBackend(config, verbose=verbose)
+    parser = LlamaParseBackend(config_path, verbose=verbose)
 
     results = asyncio.run(parser.parse(list(files)))
 

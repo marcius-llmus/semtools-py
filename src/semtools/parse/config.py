@@ -2,7 +2,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -24,6 +24,15 @@ class LlamaParseConfig:
             "output_tables_as_HTML": "true",
         }
     )
+    cache_dir: Path = field(
+        default_factory=lambda: Path.home() / ".semtools_py" / "cache" / "parse"
+    )
+    skippable_extensions: List[str] = field(
+        default_factory=lambda: [".md", ".markdown", ".txt"]
+    )
+    upload_endpoint: str = "/api/parsing/upload"
+    job_endpoint_template: str = "/api/parsing/job/{job_id}"
+    result_endpoint_suffix: str = "/result/markdown"
     check_interval: int = 5  # in seconds
     max_timeout: int = 3600  # in seconds
     max_retries: int = 10

@@ -7,6 +7,7 @@ import httpx
 
 from .config import LlamaParseConfig
 from .errors import ParseHttpError, ParseRetryExhaustedError, ParseTimeoutError
+from .enums import JobStatus
 
 
 class ParseClient:
@@ -16,11 +17,24 @@ class ParseClient:
         self.config = config
         self.verbose = verbose
 
+    def _get_upload_url(self) -> str:
+        """Constructs the upload URL."""
+        return f"{self.config.base_url}{self.config.upload_endpoint}"
+
+    def _get_status_url(self, job_id: str) -> str:
+        """Constructs the status URL for a given job ID."""
+        return f"{self.config.base_url}{self.config.job_endpoint_template.format(job_id=job_id)}"
+
+    def _get_result_url(self, job_id: str) -> str:
+        """Constructs the result URL for a given job ID."""
+        status_url = self._get_status_url(job_id)
+        return f"{status_url}{self.config.result_endpoint_suffix}"
+
     async def create_parse_job(
         self, client: httpx.AsyncClient, file_path: str
     ) -> str:
         """Creates a parse job for a single file."""
-        url = f"{self.config.base_url}/api/parsing/upload"
+        url = self._get_upload_url()
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
 
         with open(file_path, "rb") as f:
@@ -38,11 +52,11 @@ class ParseClient:
 
     async def get_job_result(
         self, client: httpx.AsyncClient, job_id: str
-    ) -> str:
+    ) -> str | None:
         """Polls for the result of a parsing job until completion or timeout."""
         start_time = time.monotonic()
-        status_url = f"{self.config.base_url}/api/parsing/job/{job_id}"
-        result_url = f"{status_url}/result/markdown"
+        status_url = self._get_status_url(job_id)
+        result_url = self._get_result_url(job_id)
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
 
         while True:
@@ -51,77 +65,74 @@ class ParseClient:
 
             await asyncio.sleep(self.config.check_interval)
 
-            try:
-                status_response = await client.get(status_url, headers=headers)
-                status_response.raise_for_status()
-                status = status_response.json()["status"]
+            # Let network exceptions propagate to be handled by the retry wrapper.
+            status_response = await client.get(status_url, headers=headers)
+            status_response.raise_for_status()
+            status = status_response.json()["status"]
 
-                if status == "SUCCESS":
-                    result_response = await client.get(result_url, headers=headers)
-                    result_response.raise_for_status()
-                    return result_response.json()["markdown"]
-                elif status in ["ERROR", "CANCELED"]:
-                    raise ParseHttpError(f"Job {job_id} failed with status: {status}")
-                elif status == "PENDING":
-                    continue
-
-            except httpx.HTTPStatusError as e:
-                # Continue polling on server errors, fail on client errors
-                if 500 <= e.response.status_code < 600:
-                    if self.verbose:
-                        print(
-                            f"Server error while polling job {job_id}, retrying..."
-                        )
-                    continue
-                raise ParseHttpError(f"HTTP error while polling job {job_id}: {e}")
-
-    async def _execute_with_retry(self, coro: Any) -> Any:
-        """Executes a coroutine with retry logic."""
-        last_exception = None
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                return await coro
-            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
-                is_server_error = (
-                    isinstance(e, httpx.HTTPStatusError)
-                    and 500 <= e.response.status_code < 600
-                )
-                if not (isinstance(e, (httpx.ConnectError, httpx.TimeoutException)) or is_server_error):
-                    raise ParseHttpError(str(e)) from e
-
-                last_exception = e
-                if attempt == self.config.max_retries:
-                    break
-
-                delay = (
-                    self.config.retry_delay_ms
-                    / 1000.0
-                    * (self.config.backoff_multiplier**attempt)
-                )
-                if self.verbose:
-                    print(
-                        f"Request failed (attempt {attempt + 1}/{self.config.max_retries + 1}): {e}. "
-                        f"Retrying in {delay:.2f}s..."
-                    )
-                await asyncio.sleep(delay)
-
-        raise ParseRetryExhaustedError(
-            f"Operation failed after {self.config.max_retries + 1} attempts."
-        ) from last_exception
+            if status == JobStatus.SUCCESS:
+                result_response = await client.get(result_url, headers=headers)
+                result_response.raise_for_status()
+                return result_response.json()["markdown"]
+            elif status in [JobStatus.ERROR, JobStatus.CANCELED]:
+                # This is a terminal job failure, not a network error. Do not retry.
+                raise ParseHttpError(f"Job {job_id} failed with status: {status}")
+            elif status == JobStatus.PENDING:
+                continue
+            else:
+                # Unknown status should also be a non-retryable error.
+                raise ParseHttpError(f"Job {job_id} has unknown status: {status}")
 
     async def create_job_with_retry(
         self, client: httpx.AsyncClient, file_path: str
     ) -> str:
-        """Creates a parse job with retry logic."""
-        return await self._execute_with_retry(self.create_parse_job(client, file_path))
+        """Creates a parse job, retrying on failure."""
+        last_exception = None
+        for attempt in range(self.config.max_retries + 1):
+            try:
+                return await self.create_parse_job(client, file_path)
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                await self._handle_server_error(attempt, e)
+
+        raise ParseRetryExhaustedError(
+            f"Job creation failed after {self.config.max_retries + 1} attempts."
+        ) from last_exception
 
     async def poll_for_result_with_retry(
         self, client: httpx.AsyncClient, job_id: str
-    ) -> str:
-        """Polls for a job result with retry logic on the polling loop itself."""
-        try:
-            return await self.get_job_result(client, job_id)
-        except ParseHttpError as e:
-            # The inner poll loop already handles retries for transient server errors.
-            # This top-level error indicates a more permanent failure.
-            raise e
+    ) -> str | None:
+        """Polls for a job result, retrying the entire polling process on failure."""
+
+        for attempt in range(self.config.max_retries + 1):
+            try:
+                return await self.get_job_result(client, job_id)
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                return await self._handle_server_error(attempt, e)
+        return None
+
+    async def _handle_server_error(self, attempt: int, e: Exception):
+        is_server_error = (
+                isinstance(e, httpx.HTTPStatusError)
+                and 500 <= e.response.status_code < 600
+        )
+        if not (isinstance(e, (httpx.ConnectError, httpx.TimeoutException)) or is_server_error):
+            raise ParseHttpError(str(e)) from e
+
+        if attempt == self.config.max_retries:
+            return
+
+        delay = (
+                self.config.retry_delay_ms
+                / 1000.0
+                * (self.config.backoff_multiplier ** attempt)
+        )
+        if self.verbose:
+            print(
+                f"Polling process failed (attempt {attempt + 1}/{self.config.max_retries + 1}): {e}. "
+                f"Retrying in {delay:.2f}s..."
+            )
+        await asyncio.sleep(delay)
+
+        raise ParseRetryExhaustedError(
+            f"Polling failed after {self.config.max_retries + 1} attempts."
+        ) from e
