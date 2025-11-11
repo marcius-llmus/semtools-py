@@ -336,7 +336,6 @@ config.ini
 benchmark/benchmark-cases/*
 ignore
 diffs.md
-cache.*
 tailwindcss
 .idea
 *.db

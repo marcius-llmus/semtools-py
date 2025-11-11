@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import numpy as np
 from typing import List
 
 
@@ -10,6 +11,15 @@ class SearchResult:
 
     file_path: str
     context_lines: List[str]
-    context_start_line: int  # 0-based index of the first line in context_lines
-    match_line_index: int  # 0-based index of the matching line within the original file
+    context_start_line: int
+    match_line_index: int
     distance: float
+
+
+@dataclass
+class Document:
+    """Internal representation of a file's content and embeddings."""
+
+    file_path: str
+    lines: List[str]
+    embeddings: np.ndarray

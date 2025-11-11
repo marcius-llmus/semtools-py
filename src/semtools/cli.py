@@ -110,7 +110,9 @@ def _run_workspace_search(query, files, n_lines, top_k, max_distance, ignore_cas
                 line_num = start + i
                 if line_num == ranked_line.line_number:
                     if is_tty:
-                        click.echo(f"\x1b[43m\x1b[30m{line_num + 1:4}: {line}\x1b[0m")
+                        # Use click.style for robust highlighting
+                        styled_line = click.style(f"{line_num + 1:4}: {line}", bg="yellow", fg="black")
+                        click.echo(styled_line)
                     else:
                         click.echo(f"{line_num + 1:4}: {line}")
                 else:
@@ -159,7 +161,9 @@ def search(query, files, n_lines, top_k, max_distance, ignore_case):
             line_num = res.context_start_line + i
             if line_num == res.match_line_index:
                 if is_tty:
-                    click.echo(f"\x1b[43m\x1b[30m{line_num + 1:4}: {line}\x1b[0m")
+                    # Use click.style for robust highlighting
+                    styled_line = click.style(f"{line_num + 1:4}: {line}", bg="yellow", fg="black")
+                    click.echo(styled_line)
                 else:
                     click.echo(f"{line_num + 1:4}: {line}")
             else:

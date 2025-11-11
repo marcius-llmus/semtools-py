@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "semtools-py"
 version = "0.1.0"
-description = "Add your description here"
+description = "Semantic search and document parsing tools for the command line"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
