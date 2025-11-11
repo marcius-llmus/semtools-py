@@ -6,7 +6,7 @@ from typing import List
 @dataclass
 class SearchResult:
     """
-    Represents a single search result, mirroring the Rust implementation's structure.
+    Represents a single search result.
     """
 
     path: str

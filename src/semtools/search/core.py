@@ -61,11 +61,15 @@ async def _process_file_for_workspace(
 
 class Searcher:
     """
-    Encapsulates the logic for semantic search, mirroring the Rust implementation.
+    Encapsulates the logic for semantic search.
     """
 
-    def __init__(self, model_name: EmbeddingModel = EmbeddingModel.POTION_MULTI_LINGUAL_128M):
-        self.model = StaticModel.from_pretrained(model_name)
+    def __init__(
+        self,
+        model: Optional[StaticModel] = None,
+        model_name: EmbeddingModel = EmbeddingModel.POTION_MULTI_LINGUAL_128M,
+    ):
+        self.model = model or StaticModel.from_pretrained(model_name)
 
     def search(
         self,

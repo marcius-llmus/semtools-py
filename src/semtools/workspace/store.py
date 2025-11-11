@@ -164,10 +164,10 @@ class Store:
         indexes = tbl.list_indices()
         if not indexes:
             try:
-                # Let LanceDB create an automatic index, similar to Rust's Index::Auto
+                # Let LanceDB create an automatic index
                 tbl.create_index(metric="cosine")
             except Exception as e:
-                # Mirroring Rust's error handling for insufficient data for PQ training
+                # Handling for insufficient data for PQ training
                 if "Not enough data to train" in str(e) or "Requires 256 rows" in str(e):
                     print(
                         "Warning: Skipping line embeddings vector index creation due to insufficient data. "

@@ -11,7 +11,7 @@ from .store import Store, WorkspaceStats
 
 @dataclass
 class WorkspaceConfig:
-    """Configuration for a semtools workspace, mirroring the Rust struct."""
+    """Configuration for a semtools workspace."""
 
     name: str = "default"
     root_dir: str = ""

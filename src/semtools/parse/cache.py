@@ -9,7 +9,7 @@ from .errors import ParseError
 
 @dataclass
 class FileMetadata:
-    """Mirrors the Rust FileMetadata struct for cache validation."""
+    """FileMetadata struct for cache validation."""
 
     modified_time: int
     size: int
@@ -17,8 +17,7 @@ class FileMetadata:
 
 
 class CacheManager:
-    """Manages the local file cache for parsed documents, mirroring the Rust implementation's
-    metadata-based validation to avoid serving stale content."""
+    """Manages the local file cache for parsed documents, using metadata-based validation to avoid serving stale content."""
 
     def __init__(self, cache_dir: Path, skippable_extensions: List[str]):
         self.cache_dir = cache_dir
