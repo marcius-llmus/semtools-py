@@ -15,6 +15,7 @@ dependencies = [
     "httpx",
     "lancedb",
     "click",
+    "aiofiles",
 ]
 
 [project.scripts]
