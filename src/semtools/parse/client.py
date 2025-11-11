@@ -92,47 +92,41 @@ class ParseClient:
             try:
                 return await self.create_parse_job(client, file_path)
             except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
-                await self._handle_server_error(attempt, e)
+                last_exception = e
+                await self._handle_retry(attempt, e)
 
-        raise ParseRetryExhaustedError(
-            f"Job creation failed after {self.config.max_retries + 1} attempts."
-        ) from last_exception
+        raise ParseRetryExhaustedError("Job creation failed after all retries.") from last_exception
 
     async def poll_for_result_with_retry(
         self, client: httpx.AsyncClient, job_id: str
     ) -> str | None:
         """Polls for a job result, retrying the entire polling process on failure."""
 
+        last_exception = None
         for attempt in range(self.config.max_retries + 1):
             try:
                 return await self.get_job_result(client, job_id)
             except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
-                return await self._handle_server_error(attempt, e)
-        return None
+                last_exception = e
+                await self._handle_retry(attempt, e)
+        
+        raise ParseRetryExhaustedError("Polling failed after all retries.") from last_exception
 
-    async def _handle_server_error(self, attempt: int, e: Exception):
+    async def _handle_retry(self, attempt: int, e: Exception):
         is_server_error = (
                 isinstance(e, httpx.HTTPStatusError)
                 and 500 <= e.response.status_code < 600
         )
         if not (isinstance(e, (httpx.ConnectError, httpx.TimeoutException)) or is_server_error):
-            raise ParseHttpError(str(e)) from e
+            raise e
 
-        if attempt == self.config.max_retries:
-            return
+        if attempt >= self.config.max_retries:
+            return # Let the loop finish and the caller raise the final error
 
-        delay = (
-                self.config.retry_delay_ms
-                / 1000.0
-                * (self.config.backoff_multiplier ** attempt)
-        )
+        delay = (self.config.retry_delay_ms / 1000.0) * (self.config.backoff_multiplier ** attempt)
         if self.verbose:
             print(
-                f"Polling process failed (attempt {attempt + 1}/{self.config.max_retries + 1}): {e}. "
+                f"Request failed (attempt {attempt + 1}/{self.config.max_retries + 1}): {e}. "
                 f"Retrying in {delay:.2f}s..."
             )
         await asyncio.sleep(delay)
-
-        raise ParseRetryExhaustedError(
-            f"Polling failed after {self.config.max_retries + 1} attempts."
-        ) from e

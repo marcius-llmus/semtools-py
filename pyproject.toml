@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "semtools-py"
@@ -21,3 +21,16 @@ dependencies = [
 parse = "semtools.cli:parse"
 search = "semtools.cli:search"
 workspace = "semtools.cli:workspace"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.3,<8.0.0",
+    "pytest-mock>=3.15.1",
+    "pytest-asyncio>=0.23.8",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semtools"]

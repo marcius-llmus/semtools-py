@@ -34,7 +34,7 @@ class LlamaParseConfig:
     upload_endpoint: str = "/api/parsing/upload"
     job_endpoint_template: str = "/api/parsing/job/{job_id}"
     result_endpoint_suffix: str = "/result/markdown"
-    check_interval: int = 5  # in seconds
+    check_interval: float = 5.0  # in seconds
     max_timeout: int = 3600  # in seconds
     max_retries: int = 10
     retry_delay_ms: int = 1000

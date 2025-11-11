@@ -82,5 +82,7 @@ def mock_ranked_lines() -> list[RankedLine]:
 def searcher() -> Searcher:
     """Provides a Searcher instance with a mocked model."""
     mock_model = MagicMock()
-    mock_model.encode.return_value = np.array([[0.1, 0.2]])
+    def dynamic_encode(lines):
+        return np.array([[0.1, 0.2]] * len(lines))
+    mock_model.encode.side_effect = dynamic_encode
     return Searcher(model=mock_model)

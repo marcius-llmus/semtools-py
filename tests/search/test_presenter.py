@@ -1,18 +1,59 @@
-class TestSearchResultFormatter:
-    def test_format_search_results(self):
-        pass
+from src.semtools.search.presenter import SearchResultFormatter
+from src.semtools.search.models import SearchResult
+from src.semtools.workspace.store import RankedLine
 
-    def test_format_ranked_lines(self):
-        pass
+
+class TestSearchResultFormatter:
+    def test_format_search_results(self, mock_search_results):
+        
+        formatter = SearchResultFormatter(n_lines=3, is_tty=True)
+
+        
+        formatted = formatter.format_results(mock_search_results)
+
+        
+        assert len(formatted) == 1
+        assert formatted[0].header.startswith("/fake/doc1.txt:0::1 (0.1230)")
+        assert formatted[0].highlighted_line_index == 0
+
+    def test_format_ranked_lines(self, mock_ranked_lines, mock_file):
+        
+        formatter = SearchResultFormatter(n_lines=2, is_tty=True)
+        mock_ranked_lines[0].path = str(mock_file)
+        mock_ranked_lines[0].line_number = 5
+
+        
+        formatted = formatter.format_results(mock_ranked_lines)
+
+        
+        assert len(formatted) == 1
+        assert formatted[0].header.startswith(f"{mock_file}:3::8")
+        assert "Line 6: Where there's a will, there's a way." in "".join(formatted[0].lines)
+        assert formatted[0].highlighted_line_index == 2
 
     def test_format_empty_results(self):
-        pass
+        formatter = SearchResultFormatter(n_lines=3, is_tty=True)
+        assert not formatter.format_results([])
 
     def test_format_ranked_line_file_not_found(self):
-        pass
+        
+        formatter = SearchResultFormatter(n_lines=3, is_tty=False)
+        ranked_line = RankedLine(path="/non/existent/file.txt", line_number=1, distance=0.1)
+
+        
+        formatted = formatter.format_results([ranked_line])
+
+        
+        assert "[Error: Could not read file content]" in formatted[0].lines[0]
 
     def test_format_results_with_tty_disabled(self):
-        pass
+        formatter = SearchResultFormatter(n_lines=3, is_tty=False)
+        res = SearchResult(path="p", context_lines=["l"], context_start_line=0, line_number=0, distance=0.1)
+        formatted = formatter.format_results([res])
+        assert formatted[0].highlighted_line_index == -1
 
     def test_format_results_with_tty_enabled(self):
-        pass
+        formatter = SearchResultFormatter(n_lines=3, is_tty=True)
+        res = SearchResult(path="p", context_lines=["l"], context_start_line=0, line_number=0, distance=0.1)
+        formatted = formatter.format_results([res])
+        assert formatted[0].highlighted_line_index == 0

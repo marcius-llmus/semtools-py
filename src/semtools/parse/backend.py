@@ -19,6 +19,7 @@ class LlamaParseBackend:
         self.cache_manager = CacheManager(
             config.cache_dir, config.skippable_extensions
         )
+        self.semaphore = asyncio.Semaphore(config.num_ongoing_requests)
         self.client = ParseClient(config, verbose)
         self.timeout = timeout
 
@@ -26,7 +27,6 @@ class LlamaParseBackend:
         """
         Parses a list of files concurrently, handling caching and API interaction.
         """
-        semaphore = asyncio.Semaphore(self.config.num_ongoing_requests)
         tasks = []
         final_results = []
 
@@ -47,7 +47,7 @@ class LlamaParseBackend:
                     continue
 
                 task = asyncio.create_task(
-                    self._process_single_document(http_client, semaphore, file_path)
+                    self._process_single_document(http_client, file_path)
                 )
                 tasks.append(task)
 
@@ -64,11 +64,10 @@ class LlamaParseBackend:
     async def _process_single_document(
         self,
         http_client: httpx.AsyncClient,
-        semaphore: asyncio.Semaphore,
         file_path: str,
     ) -> str:
         """Processes a single file: uploads, polls for result, and caches it."""
-        async with semaphore:
+        async with self.semaphore:
             if self.verbose:
                 print(f"Processing file: {file_path}")
 
