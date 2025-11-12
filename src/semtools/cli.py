@@ -102,6 +102,25 @@ def use_workspace(name):
         sys.exit(1)
 
 
+@workspace.command("delete", help="Permanently delete a workspace")
+@click.argument("name")
+def delete_workspace(name):
+    """Deletes a workspace and all its associated data."""
+    if not click.confirm(
+        f"Are you sure you want to permanently delete the workspace '{name}'? This cannot be undone."
+    ):
+        click.echo("Deletion aborted.")
+        return
+
+    try:
+        Workspace.delete(name)
+        click.echo(f"Workspace '{name}' has been deleted.")
+        click.echo(f"If you had 'export SEMTOOLS_WORKSPACE={name}' in your shell, you should remove it.")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
 @workspace.command("status", help="Show active workspace and basic stats")
 def status_workspace():
     try:

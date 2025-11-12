@@ -1,5 +1,6 @@
 import json
 import asyncio
+import shutil
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -74,9 +75,20 @@ class Workspace:
     @classmethod
     def create_or_use(cls, name: str) -> None:
         """Configures a new or existing workspace."""
-        root_dir = cls._get_root_path(name)
-        config = cls(config=WorkspaceConfig(name=name, root_dir=str(root_dir)))
-        config.save()
+        config_path = cls._get_config_path_for(name)
+        if not config_path.exists():
+            root_dir = cls._get_root_path(name)
+            config = cls(config=WorkspaceConfig(name=name, root_dir=str(root_dir)))
+            config.save()
+
+    @classmethod
+    def delete(cls, name: str) -> None:
+        """Permanently deletes a workspace and all its data."""
+        root_path = cls._get_root_path(name)
+        if not root_path.exists():
+            raise WorkspaceError(f"Workspace '{name}' not found at {root_path}")
+
+        shutil.rmtree(root_path)
 
     async def get_status(self) -> WorkspaceStats:
         """Gets status and basic stats for the workspace."""

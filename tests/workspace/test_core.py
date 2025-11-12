@@ -1,9 +1,11 @@
 import json
+import shutil
 from unittest.mock import patch
 
 import pytest
 
 from src.semtools.workspace.core import Workspace
+from src.semtools.workspace.errors import WorkspaceError
 
 
 class TestWorkspace:
@@ -47,6 +49,18 @@ class TestWorkspace:
         
         config_path = ws_path / "config.json"
         assert config_path.exists()
+
+    def test_delete_workspace(self, workspace: Workspace):
+        workspace.save()
+        ws_path = workspace._get_root_path(workspace.config.name)
+        assert ws_path.exists()
+
+        Workspace.delete(workspace.config.name)
+        assert not ws_path.exists()
+
+    def test_delete_non_existent_workspace(self):
+        with pytest.raises(WorkspaceError):
+            Workspace.delete("non_existent_ws")
 
     @pytest.mark.asyncio
     async def test_get_status(self, workspace: Workspace, mocker):
