@@ -65,18 +65,24 @@ class TestStore:
     async def test_get_stats(self, workspace_store):
         
         await workspace_store.upsert_document_metadata([DocMeta(path="/a/g.txt", size_bytes=1, mtime=1)])
-
-        
         stats = await workspace_store.get_stats()
-
-        
         assert stats.total_documents == 1
+        assert not stats.has_index
+        assert stats.index_type is None
 
     @pytest.mark.asyncio
     async def test_ensure_index_creation(self, workspace_store):
-        # This is hard to test without a lot of data. We'll trust the warning mechanism.
-        # If we really needed to, we'd create 256+ dummy embeddings.
-        pass
+        """Verify that an index is created automatically when enough data is present."""
+        # LanceDB requires a certain amount of data to train an IVF_PQ index.
+        embeddings = [
+            LineEmbedding(path="/a/b.txt", line_number=i, embedding=[float(i)] * 8)
+            for i in range(300)
+        ]
+        await workspace_store.upsert_line_embeddings(embeddings)
+
+        tbl = await workspace_store.db.open_table("line_embeddings")
+        indices = await tbl.list_indices()
+        assert len(indices) == 1
 
     @pytest.mark.asyncio
     async def test_ensure_index_skips_on_insufficient_data(self, workspace_store):
