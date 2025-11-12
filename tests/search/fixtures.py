@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from src.semtools.search.core import Searcher
-from src.semtools.search.models import Document, SearchResult
+from src.semtools.search.models import Document
 from src.semtools.workspace.store import RankedLine
 
 MOCK_FILE_CONTENT = "\n".join([
@@ -53,20 +53,6 @@ def mock_documents() -> list[Document]:
             lines=["another document", "for testing purposes"],
             embeddings=np.array([[0.5, 0.6], [0.7, 0.8]]),
         ),
-    ]
-
-
-@pytest.fixture
-def mock_search_results() -> list[SearchResult]:
-    """Provides a list of mock SearchResult objects."""
-    return [
-        SearchResult(
-            path="/fake/doc1.txt",
-            context_lines=["hello world"],
-            context_start_line=0,
-            line_number=0,
-            distance=0.123,
-        )
     ]
 
 

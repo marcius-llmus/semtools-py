@@ -59,9 +59,13 @@ def search(query, files, n_lines, top_k, max_distance, ignore_case):
     files = list(files)
 
     searcher = Searcher()
-    results = searcher.search(
-        query, files, n_lines, top_k, max_distance, ignore_case
-    )
+    try:
+        results = searcher.search(
+            query, files, top_k, max_distance, ignore_case
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     if not results:
         click.echo(f"No results found")

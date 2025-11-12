@@ -5,7 +5,6 @@ import numpy as np
 from model2vec import StaticModel
 
 from .models import Document
-from .utils import apply_case_sensitivity, normalize_lines
 
 
 class DocumentLoader:
@@ -14,6 +13,18 @@ class DocumentLoader:
     def __init__(self, model: StaticModel, ignore_case: bool = False):
         self.model = model
         self.ignore_case = ignore_case
+
+    @staticmethod
+    def normalize_lines(raw_lines: List[str]) -> List[str]:
+        """Removes trailing newlines from a list of strings."""
+        return [line.rstrip("\n") for line in raw_lines]
+
+    @staticmethod
+    def apply_case_sensitivity(lines: List[str], ignore_case: bool) -> List[str]:
+        """Applies case folding to a list of strings if required."""
+        if ignore_case:
+            return [line.lower() for line in lines]
+        return lines
 
     def load(self, files: List[str]) -> List[Document]:
         """Loads documents from files or stdin."""
@@ -24,7 +35,7 @@ class DocumentLoader:
     def _load_from_stdin(self) -> List[Document]:
         """Loads a single document from stdin."""
         documents: List[Document] = []
-        if stdin_lines := normalize_lines(sys.stdin.readlines()):
+        if stdin_lines := self.normalize_lines(sys.stdin.readlines()):
             if doc := self._create_document_from_lines("<stdin>", stdin_lines):
                 documents.append(doc)
         return documents
@@ -35,7 +46,7 @@ class DocumentLoader:
         for file_path in files:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
-                    if lines := normalize_lines(f.readlines()):
+                    if lines := self.normalize_lines(f.readlines()):
                         if doc := self._create_document_from_lines(file_path, lines):
                             documents.append(doc)
             except (IOError, UnicodeDecodeError):
@@ -46,7 +57,7 @@ class DocumentLoader:
         self, file_path: str, lines: List[str]
     ) -> Optional[Document]:
         """Creates a Document from lines of text."""
-        lines_for_embedding = apply_case_sensitivity(lines, self.ignore_case)
+        lines_for_embedding = self.apply_case_sensitivity(lines, self.ignore_case)
         embeddings = self.model.encode(lines_for_embedding)
 
         return Document(

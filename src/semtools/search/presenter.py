@@ -1,9 +1,7 @@
 from dataclasses import dataclass
-from typing import List, Union
+from typing import List
 
-from .models import SearchResult
 from ..workspace.store import RankedLine
-
 
 @dataclass
 class FormattedResult:
@@ -21,41 +19,27 @@ class SearchResultFormatter:
         self.n_lines = n_lines
         self.is_tty = is_tty
 
-    def format_results(
-        self, results: Union[List[SearchResult], List[RankedLine]]
-    ) -> List[FormattedResult]:
+    @staticmethod
+    def _format_header_with_context(ranked_line: RankedLine, start: int, end: int) -> str:
+        """Formats the header showing a line range."""
+        return f"{ranked_line.path}:{start + 1}::{end} ({ranked_line.distance:.4f})"
+
+    @staticmethod
+    def _format_header_simple(ranked_line: RankedLine) -> str:
+        """Formats a simpler header for when file content is unavailable."""
+        return f"{ranked_line.path}:{ranked_line.line_number + 1} ({ranked_line.distance:.4f})"
+
+    def format_results(self, results: List[RankedLine]) -> List[FormattedResult]:
         """Formats a list of raw search results into a display-ready format."""
         if not results:
             return []
 
-        first_result = results[0]
-        if isinstance(first_result, SearchResult):
-            return [self._format_search_result(res) for res in results]
-        elif isinstance(first_result, RankedLine):
-            return [self._format_ranked_line(res) for res in results]
-        return []
-
-    def _format_search_result(self, res: SearchResult) -> FormattedResult:
-        """Formats a single in-memory SearchResult."""
-        end = res.context_start_line + len(res.context_lines)
-        header = f"{res.path}:{res.context_start_line}::{end} ({res.distance:.4f})"
-
-        formatted_lines, highlighted_index = [], -1
-        for i, line in enumerate(res.context_lines):
-            line_num = res.context_start_line + i
-            line_to_print = f"{line_num + 1:4}: {line}"
-            if line_num == res.line_number and self.is_tty:
-                highlighted_index = i
-            formatted_lines.append(line_to_print)
-
-        return FormattedResult(
-            header=header, lines=formatted_lines, highlighted_line_index=highlighted_index
-        )
+        return [self._format_ranked_line(res) for res in results]
 
     def _format_ranked_line(self, ranked_line: RankedLine) -> FormattedResult:
         """Formats a single workspace-backed RankedLine, reading the file for context."""
         start = max(0, ranked_line.line_number - self.n_lines)
-        header = f"{ranked_line.path}:{start}::{ranked_line.line_number + self.n_lines + 1} ({ranked_line.distance:.4f})"
+        header = self._format_header_simple(ranked_line)
 
         try:
             with open(ranked_line.path, "r", encoding="utf-8") as f:
@@ -72,7 +56,7 @@ class SearchResultFormatter:
                 formatted_lines.append(line_to_print)
 
             return FormattedResult(
-                header=header,
+                header=self._format_header_with_context(ranked_line, start, end),
                 lines=formatted_lines,
                 highlighted_line_index=highlighted_index,
             )

@@ -1,21 +1,8 @@
 from src.semtools.search.presenter import SearchResultFormatter
-from src.semtools.search.models import SearchResult
 from src.semtools.workspace.store import RankedLine
 
 
 class TestSearchResultFormatter:
-    def test_format_search_results(self, mock_search_results):
-        
-        formatter = SearchResultFormatter(n_lines=3, is_tty=True)
-
-        
-        formatted = formatter.format_results(mock_search_results)
-
-        
-        assert len(formatted) == 1
-        assert formatted[0].header.startswith("/fake/doc1.txt:0::1 (0.1230)")
-        assert formatted[0].highlighted_line_index == 0
-
     def test_format_ranked_lines(self, mock_ranked_lines, mock_file):
         
         formatter = SearchResultFormatter(n_lines=2, is_tty=True)
@@ -27,7 +14,7 @@ class TestSearchResultFormatter:
 
         
         assert len(formatted) == 1
-        assert formatted[0].header.startswith(f"{mock_file}:3::8")
+        assert formatted[0].header.startswith(f"{mock_file}:4::8")
         assert "Line 6: Where there's a will, there's a way." in "".join(formatted[0].lines)
         assert formatted[0].highlighted_line_index == 2
 
@@ -46,14 +33,22 @@ class TestSearchResultFormatter:
         
         assert "[Error: Could not read file content]" in formatted[0].lines[0]
 
-    def test_format_results_with_tty_disabled(self):
+    def test_format_results_with_tty_disabled(self, tmp_path):
         formatter = SearchResultFormatter(n_lines=3, is_tty=False)
-        res = SearchResult(path="p", context_lines=["l"], context_start_line=0, line_number=0, distance=0.1)
+        mock_file = tmp_path / "test.txt"
+        mock_file.write_text("line 1")
+        res = RankedLine(path=str(mock_file), line_number=0, distance=0.1)
+
         formatted = formatter.format_results([res])
+
         assert formatted[0].highlighted_line_index == -1
 
-    def test_format_results_with_tty_enabled(self):
+    def test_format_results_with_tty_enabled(self, tmp_path):
         formatter = SearchResultFormatter(n_lines=3, is_tty=True)
-        res = SearchResult(path="p", context_lines=["l"], context_start_line=0, line_number=0, distance=0.1)
+        mock_file = tmp_path / "test.txt"
+        mock_file.write_text("line 1")
+        res = RankedLine(path=str(mock_file), line_number=0, distance=0.1)
+
         formatted = formatter.format_results([res])
+
         assert formatted[0].highlighted_line_index == 0

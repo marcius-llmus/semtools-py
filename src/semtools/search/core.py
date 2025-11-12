@@ -3,16 +3,16 @@ import os
 import aiofiles
 import aiofiles.os
 import numpy as np
-from typing import List, Optional, Union
+from scipy.spatial.distance import cosine
+from typing import List, Optional
 
 from model2vec import StaticModel
 
 from ..workspace import Store, Workspace
 from ..workspace.store import DocMeta, LineEmbedding, RankedLine
-from .engine import SearchEngine
 from .enums import EmbeddingModel
 from .loader import DocumentLoader
-from .models import SearchResult
+from .models import Document
 
 
 class Searcher:
@@ -31,15 +31,17 @@ class Searcher:
         self,
         query: str,
         files: List[str],
-        n_lines: int = 3,
         top_k: int = 3,
         max_distance: Optional[float] = None,
         ignore_case: bool = False,
-    ) -> Union[List[SearchResult], List[RankedLine]]:
+    ) -> List[RankedLine]:
         """
         Orchestrates a search across files or stdin, dispatching to workspace or
         in-memory search as appropriate.
         """
+        if not query or not query.strip():
+            raise ValueError("Query cannot be empty.")
+
         if os.getenv("SEMTOOLS_WORKSPACE") and files:
             return asyncio.run(
                 self._search_with_workspace(
@@ -47,8 +49,30 @@ class Searcher:
                 )
             )
         return self._search_in_memory(
-            query, files, n_lines, top_k, max_distance, ignore_case
+            query, files, top_k, max_distance, ignore_case
         )
+
+    @staticmethod
+    def _rank_results(
+        documents: List[Document],
+        query_embedding: np.ndarray,
+        top_k: int,
+        max_distance: Optional[float],
+    ) -> List[RankedLine]:
+        """Performs the core search logic on a list of in-memory documents."""
+        raw_results = []
+        for doc in documents:
+            for i, line_embedding in enumerate(doc.embeddings):
+                distance = cosine(query_embedding, line_embedding)
+                if max_distance is None or distance <= max_distance:
+                    raw_results.append(
+                        RankedLine(path=doc.path, line_number=i, distance=distance)
+                    )
+
+        raw_results.sort(key=lambda x: x.distance)
+
+        final_results = raw_results if max_distance is not None else raw_results[:top_k]
+        return final_results
 
     async def _encode_in_thread(
         self, lines: List[str], ignore_case: bool
@@ -63,11 +87,10 @@ class Searcher:
         self,
         query: str,
         files: List[str],
-        n_lines: int,
         top_k: int,
         max_distance: Optional[float],
         ignore_case: bool,
-    ) -> List[SearchResult]:
+    ) -> List[RankedLine]:
         """Performs a standard, stateless search in memory."""
         processed_query = query.lower() if ignore_case else query
 
@@ -79,8 +102,8 @@ class Searcher:
         if not documents:
             return []
 
-        return SearchEngine.rank_results(
-            documents, query_embedding, n_lines, top_k, max_distance
+        return self._rank_results(
+            documents, query_embedding, top_k, max_distance
         )
 
     async def _embed_lines_sync(self, lines: List[str], file_path: str, ignore_case: bool) -> List[LineEmbedding]:

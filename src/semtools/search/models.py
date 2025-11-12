@@ -4,19 +4,6 @@ from typing import List
 
 
 @dataclass
-class SearchResult:
-    """
-    Represents a single search result.
-    """
-
-    path: str
-    context_lines: List[str]
-    context_start_line: int
-    line_number: int
-    distance: float
-
-
-@dataclass
 class Document:
     """Internal representation of a file's content and embeddings."""
 
