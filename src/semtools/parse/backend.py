@@ -2,8 +2,6 @@ import asyncio
 from pathlib import Path
 from typing import List
 
-import httpx
-
 from .cache import CacheManager
 from .client import ParseClient
 from .config import LlamaParseConfig
@@ -16,12 +14,11 @@ class LlamaParseBackend:
         config = LlamaParseConfig.from_config_file(Path(config_path))
         self.config = config
         self.verbose = verbose
+        self.timeout = timeout
         self.cache_manager = CacheManager(
             config.cache_dir, config.skippable_extensions
         )
         self.semaphore = asyncio.Semaphore(config.num_ongoing_requests)
-        self.client = ParseClient(config, verbose)
-        self.timeout = timeout
 
     async def parse(self, files: List[str]) -> List[str]:
         """
@@ -31,7 +28,7 @@ class LlamaParseBackend:
         final_results = []
 
         # Use a single client for connection pooling, which is more efficient
-        async with httpx.AsyncClient(timeout=self.timeout) as http_client:
+        async with ParseClient(self.config, self.verbose, timeout=self.timeout) as client:
             for file_path in files:
                 if self.cache_manager.should_skip_file(file_path):
                     if self.verbose:
@@ -47,7 +44,7 @@ class LlamaParseBackend:
                     continue
 
                 task = asyncio.create_task(
-                    self._process_single_document(http_client, file_path)
+                    self._process_single_document(client, file_path)
                 )
                 tasks.append(task)
 
@@ -62,19 +59,15 @@ class LlamaParseBackend:
         return final_results
 
     async def _process_single_document(
-        self,
-        http_client: httpx.AsyncClient,
-        file_path: str,
+        self, client: ParseClient, file_path: str
     ) -> str:
         """Processes a single file: uploads, polls for result, and caches it."""
         async with self.semaphore:
             if self.verbose:
                 print(f"Processing file: {file_path}")
 
-            job_id = await self.client.create_job_with_retry(http_client, file_path)
-            markdown_content = await self.client.poll_for_result_with_retry(
-                http_client, job_id
-            )
+            job_id = await client.create_job_with_retry(file_path)
+            markdown_content = await client.poll_for_result_with_retry(job_id)
 
             result_path = await self.cache_manager.write_results_to_disk(
                 file_path, markdown_content

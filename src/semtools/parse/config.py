@@ -36,7 +36,7 @@ class LlamaParseConfig:
     result_endpoint_suffix: str = "/result/markdown"
     check_interval: float = 5.0  # in seconds
     max_timeout: int = 3600  # in seconds
-    max_retries: int = 10
+    max_retries: int = 3
     retry_delay_ms: int = 1000
     backoff_multiplier: float = 2.0
 
