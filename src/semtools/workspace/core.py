@@ -24,15 +24,14 @@ class Workspace:
         active_name = cls.get_active_workspace_name()
         config_path = cls._get_config_path_for(active_name)
 
-        if config_path.exists():
-            with open(config_path, "r") as f:
-                config_data = json.load(f)
-            config = WorkspaceConfig(**config_data)
-        else:
-            config = WorkspaceConfig(name=active_name)
+        if not config_path.exists():
+            raise WorkspaceError(
+                f"Workspace '{active_name}' not found. Run 'workspace use {active_name}' to create it."
+            )
 
-        if not config.root_dir:
-            config.root_dir = str(cls._get_root_path(active_name))
+        with open(config_path, "r") as f:
+            config_data = json.load(f)
+        config = WorkspaceConfig(**config_data)
 
         return cls(config)
 
