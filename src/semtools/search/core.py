@@ -48,6 +48,7 @@ class Searcher:
                     query, files, top_k, max_distance, ignore_case
                 )
             )
+        # todo make async later because I am too lazy right now lol
         return self._search_in_memory(
             query, files, top_k, max_distance, ignore_case
         )
