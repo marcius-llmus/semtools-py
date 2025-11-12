@@ -4,8 +4,7 @@ import pytest
 from httpx import Response, Request, HTTPStatusError
 
 from src.semtools.parse.client import ParseClient
-from src.semtools.parse.config import LlamaParseConfig
-from src.semtools.parse.errors import ParseHttpError, ParseTimeoutError
+from src.semtools.parse.errors import ParseHttpError, ParseRetryExhaustedError, ParseTimeoutError
 from src.semtools.parse.enums import JobStatus
 
 
@@ -90,6 +89,22 @@ class TestParseClient:
         assert job_id == "job123"
 
     @pytest.mark.asyncio
+    async def test_create_job_with_retry_exhausted(self, llama_parse_config, tmp_path):
+        llama_parse_config.max_retries = 1
+        llama_parse_config.retry_delay_ms = 1
+        client = ParseClient(llama_parse_config)
+        client.http_client = AsyncMock()
+        client.http_client.post.side_effect = [
+            HTTPStatusError("error", request=Request("POST", "http://dummy.url"), response=Response(500, request=Request("POST", "http://dummy.url"))),
+            HTTPStatusError("error", request=Request("POST", "http://dummy.url"), response=Response(500, request=Request("POST", "http://dummy.url")))
+        ]
+        file = tmp_path / "test.pdf"
+        file.touch()
+
+        with pytest.raises(ParseRetryExhaustedError):
+            await client.create_job_with_retry(str(file))
+
+    @pytest.mark.asyncio
     async def test_poll_for_result_with_retry(self, llama_parse_config):
         llama_parse_config.max_retries = 1
         llama_parse_config.retry_delay_ms = 1
@@ -102,3 +117,17 @@ class TestParseClient:
         ]
         result = await client.poll_for_result_with_retry("job123")
         assert result == "content"
+
+    @pytest.mark.asyncio
+    async def test_poll_for_result_with_retry_exhausted(self, llama_parse_config):
+        llama_parse_config.max_retries = 1
+        llama_parse_config.retry_delay_ms = 1
+        client = ParseClient(llama_parse_config)
+        client.http_client = AsyncMock()
+        client.http_client.get.side_effect = [
+            HTTPStatusError("error", request=Request("GET", "http://dummy.url"), response=Response(500, request=Request("GET", "http://dummy.url"))),
+            HTTPStatusError("error", request=Request("GET", "http://dummy.url"), response=Response(500, request=Request("GET", "http://dummy.url")))
+        ]
+
+        with pytest.raises(ParseRetryExhaustedError):
+            await client.poll_for_result_with_retry("job123")

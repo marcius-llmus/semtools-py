@@ -80,7 +80,8 @@ class ParseClient:
                 # This is a terminal job failure, not a network error. Do not retry.
                 raise ParseHttpError(f"Job {job_id} failed with status: {status}")
             elif status == JobStatus.PENDING:
-                continue
+                if self.verbose:
+                    print(f"Job still pending: {job_id}")
             else:
                 # Unknown status should also be a non-retryable error.
                 raise ParseHttpError(f"Job {job_id} has unknown status: {status}")
