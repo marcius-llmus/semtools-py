@@ -37,59 +37,59 @@ class TestSearcher:
     @pytest.mark.asyncio
     async def test_search_with_workspace_no_changes(self, searcher: Searcher, mock_file: Path, mocker):
         mocker.patch("os.getenv", return_value="test_ws")
-        mock_store = MagicMock()
+        mock_store = mocker.AsyncMock()
         real_stat = os.stat(mock_file)
         mock_store.get_existing_docs.return_value = {
             str(mock_file): DocMeta(path=str(mock_file), size_bytes=real_stat.st_size, mtime=int(real_stat.st_mtime))
         }
         mock_store.search_line_embeddings.return_value = [RankedLine(path=str(mock_file), line_number=0, distance=0.1)]
-        mocker.patch("src.semtools.search.core.Store", return_value=mock_store)
+        mocker.patch("src.semtools.search.core.Store.create", return_value=mock_store)
         mock_ws_instance = MagicMock()
         # Provide a real temporary path for the workspace database
         mock_ws_instance.config.root_dir = str(mock_file.parent / "test_ws")
         mocker.patch("src.semtools.search.core.Workspace.open", return_value=mock_ws_instance)
 
-        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], n_lines=3, top_k=1, max_distance=None, ignore_case=False)
+        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False)
 
-        mock_store.upsert_line_embeddings.assert_not_called()
-        mock_store.upsert_document_metadata.assert_not_called()
-        mock_store.search_line_embeddings.assert_called_once()
+        mock_store.upsert_line_embeddings.assert_not_awaited()
+        mock_store.upsert_document_metadata.assert_not_awaited()
+        mock_store.search_line_embeddings.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_search_with_workspace_new_file(self, searcher: Searcher, mock_file: Path, mocker):
         mocker.patch("os.getenv", return_value="test_ws")
-        mock_store = MagicMock()
+        mock_store = mocker.AsyncMock()
         mock_store.get_existing_docs.return_value = {}  # No existing docs
-        mocker.patch("src.semtools.search.core.Store", return_value=mock_store)
+        mocker.patch("src.semtools.search.core.Store.create", return_value=mock_store)
         mock_ws_instance = MagicMock()
         mock_ws_instance.config.root_dir = str(mock_file.parent / "test_ws")
         mocker.patch("src.semtools.search.core.Workspace.open", return_value=mock_ws_instance)
 
-        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], n_lines=3, top_k=1, max_distance=None, ignore_case=False)
+        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False)
 
-        mock_store.upsert_line_embeddings.assert_called_once()
-        mock_store.upsert_document_metadata.assert_called_once()
-        mock_store.search_line_embeddings.assert_called_once()
+        mock_store.upsert_line_embeddings.assert_awaited_once()
+        mock_store.upsert_document_metadata.assert_awaited_once()
+        mock_store.search_line_embeddings.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_search_with_workspace_modified_file(self, searcher: Searcher, mock_file: Path, mocker):
         
         mocker.patch("os.getenv", return_value="test_ws")
-        mock_store = MagicMock()
+        mock_store = mocker.AsyncMock()
         mock_store.get_existing_docs.return_value = {
             str(mock_file): DocMeta(path=str(mock_file), size_bytes=1, mtime=1) # Stale meta
         }
-        mocker.patch("src.semtools.search.core.Store", return_value=mock_store)
+        mocker.patch("src.semtools.search.core.Store.create", return_value=mock_store)
         mock_ws_instance = MagicMock()
         mock_ws_instance.config.root_dir = str(mock_file.parent / "test_ws")
         mocker.patch("src.semtools.search.core.Workspace.open", return_value=mock_ws_instance)
 
         
-        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], n_lines=3, top_k=1, max_distance=None, ignore_case=False)
+        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False)
 
         
-        mock_store.upsert_line_embeddings.assert_called_once()
-        mock_store.upsert_document_metadata.assert_called_once()
+        mock_store.upsert_line_embeddings.assert_awaited_once()
+        mock_store.upsert_document_metadata.assert_awaited_once()
 
     def test_search_with_ignore_case(self):
         

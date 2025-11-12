@@ -1,9 +1,9 @@
 import json
-import shutil
 from unittest.mock import patch
 
 import pytest
 
+from semtools.workspace.store import WorkspaceStats
 from src.semtools.workspace.core import Workspace
 from src.semtools.workspace.errors import WorkspaceError
 
@@ -64,26 +64,33 @@ class TestWorkspace:
 
     @pytest.mark.asyncio
     async def test_get_status(self, workspace: Workspace, mocker):
-        mock_store = mocker.patch("src.semtools.workspace.core.Store")
+        mock_store_instance = mocker.AsyncMock()
+        mock_store_instance.get_stats.return_value = WorkspaceStats(
+            total_documents=0, has_index=False, index_type=None
+        )
+        mocker.patch("src.semtools.workspace.core.Store.create", return_value=mock_store_instance)
+
         await workspace.get_status()
-        mock_store.return_value.get_stats.assert_called_once()
+        mock_store_instance.get_stats.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_prune(self, workspace: Workspace, workspace_store, tmp_path):
+    async def test_prune(self, workspace: Workspace, tmp_path, mocker):
         
         file_to_keep = tmp_path / "keep.txt"
         file_to_keep.touch()
         file_to_delete = tmp_path / "delete.txt"
         file_to_delete.touch()
 
-        workspace_store.get_all_document_paths = lambda: [str(file_to_keep), str(file_to_delete)]
-        workspace_store.delete_documents = (lambda paths: None)
-        
+        mock_store_instance = mocker.AsyncMock()
+        mock_store_instance.get_all_document_paths.return_value = [
+            str(file_to_keep),
+            str(file_to_delete),
+        ]
+        mocker.patch("src.semtools.workspace.core.Store.create", return_value=mock_store_instance)
+
         file_to_delete.unlink()
 
-        with patch("src.semtools.workspace.core.Store", return_value=workspace_store):
-            
-            missing = await workspace.prune()
+        missing = await workspace.prune()
 
-            
-            assert missing == [str(file_to_delete)]
+        assert missing == [str(file_to_delete)]
+        mock_store_instance.delete_documents.assert_awaited_once_with(missing)

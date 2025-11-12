@@ -27,6 +27,6 @@ def workspace(workspace_config: WorkspaceConfig) -> Workspace:
 
 
 @pytest.fixture
-def workspace_store(temp_workspace_dir: Path) -> Store:
+async def workspace_store(workspace_config: WorkspaceConfig) -> Store:
     """Provides a workspace Store instance connected to a temporary DB."""
-    return Store(workspace_dir=temp_workspace_dir)
+    return await Store.create(workspace_config)

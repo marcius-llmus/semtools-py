@@ -2,22 +2,14 @@ import json
 import asyncio
 import shutil
 import os
-from dataclasses import asdict, dataclass
+import aiofiles.os
+from dataclasses import asdict
 from pathlib import Path
 
 from ..config import APP_HOME_DIR
 from .errors import WorkspaceError
+from .models import WorkspaceConfig
 from .store import Store, WorkspaceStats
-
-
-@dataclass
-class WorkspaceConfig:
-    """Configuration for a semtools workspace."""
-
-    name: str = "default"
-    root_dir: str = ""
-    in_batch_size: int = 5_000
-    oversample_factor: int = 3
 
 
 class Workspace:
@@ -92,20 +84,23 @@ class Workspace:
 
     async def get_status(self) -> WorkspaceStats:
         """Gets status and basic stats for the workspace."""
-        store = Store(self.config.root_dir)
-        return await asyncio.to_thread(store.get_stats)
+        store = await Store.create(self.config)
+        return await store.get_stats()
 
     async def prune(self) -> list[str]:
         """Removes stale or missing files from the store and returns their paths."""
-        store = Store(self.config.root_dir)
-        all_paths = await asyncio.to_thread(store.get_all_document_paths)
+        store = await Store.create(self.config)
+        all_paths = await store.get_all_document_paths()
 
         # Check for existence of files concurrently
-        tasks = [asyncio.to_thread(os.path.exists, p) for p in all_paths]
-        exists_results = await asyncio.gather(*tasks)
-        missing_paths = [path for path, exists in zip(all_paths, exists_results) if not exists]
+        tasks = [aiofiles.os.stat(p) for p in all_paths]
+        stat_results = await asyncio.gather(*tasks, return_exceptions=True)
+        missing_paths = [
+            path for path, res in zip(all_paths, stat_results)
+            if isinstance(res, FileNotFoundError)
+        ]
 
         if missing_paths:
-            await asyncio.to_thread(store.delete_documents, missing_paths)
+            await store.delete_documents(missing_paths)
 
         return missing_paths
