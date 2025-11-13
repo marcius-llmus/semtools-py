@@ -10,11 +10,12 @@ from src.semtools.workspace.store import DocMeta, RankedLine
 
 
 class TestSearcher:
-    def test_search_in_memory(self, searcher: Searcher, mock_file: Path):
+    @pytest.mark.asyncio
+    async def test_search_in_memory(self, searcher: Searcher, mock_file: Path):
         query = "fox"
         files = [str(mock_file)]
 
-        results = searcher.search(query=query, files=files, top_k=1)
+        results = await searcher.search(query=query, files=files, top_k=1)
 
         assert results
         assert len(results) == 1
@@ -23,21 +24,24 @@ class TestSearcher:
         assert result.path == str(mock_file)
         assert result.line_number == 0
 
-    def test_search_in_memory_no_results(self, mocker):
+    @pytest.mark.asyncio
+    async def test_search_in_memory_no_results(self, mocker):
         mocker.patch("sys.stdin.isatty", return_value=True)
         searcher = Searcher()
         query = "a query that will not be found"
         files = []
 
-        results = searcher.search(query=query, files=files, top_k=1)
+        results = await searcher.search(query=query, files=files, top_k=1)
 
         assert not results
 
-    def test_search_with_empty_query(self, searcher: Searcher, mock_file: Path):
+    @pytest.mark.asyncio
+    async def test_search_with_empty_query(self, searcher: Searcher, mock_file: Path):
         with pytest.raises(ValueError, match="Query cannot be empty."):
-            searcher.search(query="", files=[str(mock_file)])
+            await searcher.search(query="", files=[str(mock_file)])
 
-    def test_search_with_ignore_case(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_search_with_ignore_case(self, tmp_path):
         # This test correctly mocks the model to verify the input it receives.
         file = tmp_path / "test.txt"
         file.write_text("Hello\nhello")
@@ -46,7 +50,7 @@ class TestSearcher:
         mock_model.encode.return_value = [[0.1], [0.1]]  # Dummy embeddings
 
         searcher = Searcher(model=mock_model)
-        searcher.search("hello", [str(file)], ignore_case=True)
+        await searcher.search("hello", [str(file)], ignore_case=True)
 
         # Assert that the lines sent for embedding were lowercased
         mock_model.encode.assert_any_call(["hello", "hello"])
@@ -64,7 +68,9 @@ class TestSearcher:
             str(mock_file): DocMeta(path=str(mock_file), size_bytes=real_stat.st_size, mtime=int(real_stat.st_mtime))
         }
 
-        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False)
+        await searcher.search(
+            query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False
+        )
 
         mock_store.upsert_line_embeddings.assert_not_awaited()
         mock_store.upsert_document_metadata.assert_not_awaited()
@@ -80,7 +86,9 @@ class TestSearcher:
         mock_store = mock_store_create.return_value
         mock_store.get_existing_docs.return_value = {}  # No existing docs
 
-        await searcher._search_with_workspace(query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False)
+        await searcher.search(
+            query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False
+        )
 
         mock_store.upsert_line_embeddings.assert_awaited_once()
         mock_store.upsert_document_metadata.assert_awaited_once()
@@ -98,7 +106,7 @@ class TestSearcher:
             str(mock_file): DocMeta(path=str(mock_file), size_bytes=1, mtime=1)  # Stale meta
         }
 
-        await searcher._search_with_workspace(
+        await searcher.search(
             query="fox", files=[str(mock_file)], top_k=1, max_distance=None, ignore_case=False
         )
 

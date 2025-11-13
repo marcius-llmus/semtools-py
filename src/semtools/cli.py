@@ -60,9 +60,8 @@ def search(query, files, n_lines, top_k, max_distance, ignore_case):
 
     searcher = Searcher()
     try:
-        results = searcher.search(
-            query, files, top_k, max_distance, ignore_case
-        )
+        results = asyncio.run(
+            searcher.search(query, files, top_k, max_distance, ignore_case))
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

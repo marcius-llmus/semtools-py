@@ -27,7 +27,7 @@ class Searcher:
     ):
         self.model = model or StaticModel.from_pretrained(model_name)
 
-    def search(
+    async def search(
         self,
         query: str,
         files: List[str],
@@ -42,15 +42,17 @@ class Searcher:
         if not query or not query.strip():
             raise ValueError("Query cannot be empty.")
 
+        doc_loader = DocumentLoader(self.model, ignore_case=ignore_case)
+        query_embedding_array = await doc_loader.encode([query], ignore_case)
+        query_embedding = query_embedding_array[0]
+
         if os.getenv("SEMTOOLS_WORKSPACE") and files:
-            return asyncio.run(
-                self._search_with_workspace(
-                    query, files, top_k, max_distance, ignore_case
-                )
+            return await self._search_with_workspace(
+                query_embedding, files, top_k, max_distance, doc_loader
             )
         # todo make async later because I am too lazy right now lol
-        return self._search_in_memory(
-            query, files, top_k, max_distance, ignore_case
+        return await self._search_in_memory(
+            query_embedding, files, top_k, max_distance, doc_loader
         )
 
     @staticmethod
@@ -75,30 +77,16 @@ class Searcher:
         final_results = raw_results if max_distance is not None else raw_results[:top_k]
         return final_results
 
-    async def _encode_in_thread(
-        self, lines: List[str], ignore_case: bool
-    ) -> np.ndarray:
-        """Asynchronously encodes lines by running the sync encoder in a thread."""
-        lines_for_embedding = (
-            [line.lower() for line in lines] if ignore_case else lines
-        )
-        return await asyncio.to_thread(self.model.encode, lines_for_embedding)
-
-    def _search_in_memory(
+    async def _search_in_memory(
         self,
-        query: str,
+        query_embedding: np.ndarray,
         files: List[str],
         top_k: int,
         max_distance: Optional[float],
-        ignore_case: bool,
+        doc_loader: DocumentLoader,
     ) -> List[RankedLine]:
         """Performs a standard, stateless search in memory."""
-        processed_query = query.lower() if ignore_case else query
-
-        query_embedding = self.model.encode([processed_query])[0]
-
-        doc_loader = DocumentLoader(self.model, ignore_case=ignore_case)
-        documents = doc_loader.load(files)
+        documents = await doc_loader.load(files)
 
         if not documents:
             return []
@@ -107,16 +95,8 @@ class Searcher:
             documents, query_embedding, top_k, max_distance
         )
 
-    async def _embed_lines_sync(self, lines: List[str], file_path: str, ignore_case: bool) -> List[LineEmbedding]:
-        """Computes embeddings for a list of lines. Blocking."""
-        embeddings = await self._encode_in_thread(lines, ignore_case)
-        return [
-            LineEmbedding(path=file_path, line_number=i, embedding=emb.tolist())  # noqa
-            for i, emb in enumerate(embeddings)
-        ]
-
     async def _process_file_for_workspace(
-        self, file_path: str, existing_docs: dict, ignore_case: bool
+        self, file_path: str, existing_docs: dict, doc_loader: DocumentLoader
     ):
         """Async helper to check and process a single file for workspace update."""
         try:
@@ -133,28 +113,26 @@ class Searcher:
             or existing_meta.mtime != current_meta.mtime
             or existing_meta.size_bytes != current_meta.size_bytes
         ):
-            try:
-                async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
-                    lines = [line.rstrip("\n") for line in await f.readlines()]
-            except (IOError, UnicodeDecodeError):
-                return [], None
+            doc = await doc_loader.load_file(file_path)
 
-             
-            if not lines: 
-                return [], current_meta 
-            lines_to_upsert = await self._embed_lines_sync(lines, file_path, ignore_case)
+            if not doc or not doc.lines:
+                return [], current_meta
 
+            lines_to_upsert = [
+                LineEmbedding(path=doc.path, line_number=i, embedding=emb.tolist())
+                for i, emb in enumerate(doc.embeddings)
+            ]
             return lines_to_upsert, current_meta
 
         return None, None
 
     async def _search_with_workspace(
         self,
-        query: str,
+        query_embedding: np.ndarray,
         files: List[str],
         top_k: int,
         max_distance: Optional[float],
-        ignore_case: bool,
+        doc_loader: DocumentLoader,
     ) -> List[RankedLine]:
         """Handles the search logic when a workspace is active."""
         ws = Workspace.open()
@@ -164,8 +142,7 @@ class Searcher:
         existing_docs = await store.get_existing_docs(files)
 
         tasks = [
-            self._process_file_for_workspace(fp, existing_docs, ignore_case)
-            for fp in files
+            self._process_file_for_workspace(fp, existing_docs, doc_loader) for fp in files
         ]
         results = await asyncio.gather(*tasks)
 
@@ -179,9 +156,6 @@ class Searcher:
             await store.upsert_document_metadata(all_docs_to_upsert)
 
         # 3. Search the workspace
-        query_embedding = await self._encode_in_thread(
-            [query], ignore_case
-        )
         return await store.search_line_embeddings(
-            query_embedding[0].tolist(), files, top_k, max_distance
+            query_embedding.tolist(), files, top_k, max_distance
         )

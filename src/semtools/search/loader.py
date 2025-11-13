@@ -1,6 +1,8 @@
+import asyncio
 import sys
 from typing import List, Optional
 
+import aiofiles
 import numpy as np
 from model2vec import StaticModel
 
@@ -14,6 +16,13 @@ class DocumentLoader:
         self.model = model
         self.ignore_case = ignore_case
 
+    async def encode(self, lines: List[str], ignore_case: bool) -> np.ndarray:
+        """Asynchronously encodes lines by running the sync encoder in a thread."""
+        lines_for_embedding = (
+            [line.lower() for line in lines] if ignore_case else lines
+        )
+        return await asyncio.to_thread(self.model.encode, lines_for_embedding)
+
     @staticmethod
     def normalize_lines(raw_lines: List[str]) -> List[str]:
         """Removes trailing newlines from a list of strings."""
@@ -26,39 +35,43 @@ class DocumentLoader:
             return [line.lower() for line in lines]
         return lines
 
-    def load(self, files: List[str]) -> List[Document]:
+    async def load(self, files: List[str]) -> List[Document]:
         """Loads documents from files or stdin."""
         if not files and not sys.stdin.isatty():
-            return self._load_from_stdin()
-        return self._load_from_files(files)
+            return await self._load_from_stdin()
+        return await self._load_from_files(files)
 
-    def _load_from_stdin(self) -> List[Document]:
+    async def load_file(self, file_path: str) -> Optional[Document]:
+        """Loads and processes a single file."""
+        try:
+            async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+                raw_lines = await f.readlines()
+                if lines := self.normalize_lines(raw_lines):
+                    return await self._create_document_from_lines(file_path, lines)
+        except (IOError, UnicodeDecodeError):
+            return None
+        return None
+
+    async def _load_from_stdin(self) -> List[Document]:
         """Loads a single document from stdin."""
         documents: List[Document] = []
-        if stdin_lines := self.normalize_lines(sys.stdin.readlines()):
-            if doc := self._create_document_from_lines("<stdin>", stdin_lines):
+        raw_lines = await asyncio.to_thread(sys.stdin.readlines)
+        if stdin_lines := self.normalize_lines(raw_lines):
+            if doc := await self._create_document_from_lines("<stdin>", stdin_lines):
                 documents.append(doc)
         return documents
 
-    def _load_from_files(self, files: List[str]) -> List[Document]:
+    async def _load_from_files(self, files: List[str]) -> List[Document]:
         """Loads documents from a list of file paths."""
-        documents: List[Document] = []
-        for file_path in files:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    if lines := self.normalize_lines(f.readlines()):
-                        if doc := self._create_document_from_lines(file_path, lines):
-                            documents.append(doc)
-            except (IOError, UnicodeDecodeError):
-                continue
-        return documents
+        tasks = [self.load_file(fp) for fp in files]
+        results = await asyncio.gather(*tasks)
+        return [doc for doc in results if doc is not None]
 
-    def _create_document_from_lines(
+    async def _create_document_from_lines(
         self, file_path: str, lines: List[str]
     ) -> Optional[Document]:
         """Creates a Document from lines of text."""
-        lines_for_embedding = self.apply_case_sensitivity(lines, self.ignore_case)
-        embeddings = self.model.encode(lines_for_embedding)
+        embeddings = await self.encode(lines, self.ignore_case)
 
         return Document(
             path=file_path, lines=lines, embeddings=np.array(embeddings)
