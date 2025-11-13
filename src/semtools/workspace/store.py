@@ -253,9 +253,8 @@ class Store:
                 )
 
         all_results.sort(key=lambda rkd_l: rkd_l.distance)
-        final_results = all_results[:top_k]
 
         if max_distance is not None:
-            return [r for r in final_results if r.distance <= max_distance]
+            return [r for r in all_results if r.distance <= max_distance]
 
-        return final_results
+        return all_results[:top_k]

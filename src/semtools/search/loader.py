@@ -15,13 +15,15 @@ class DocumentLoader:
     def __init__(self, model: StaticModel, ignore_case: bool = False):
         self.model = model
         self.ignore_case = ignore_case
+        self._lock = asyncio.Lock()
 
-    async def encode(self, lines: List[str], ignore_case: bool) -> np.ndarray:
+    async def encode(self, lines: List[str]) -> np.ndarray:
         """Asynchronously encodes lines by running the sync encoder in a thread."""
         lines_for_embedding = (
-            [line.lower() for line in lines] if ignore_case else lines
+            [line.lower() for line in lines] if self.ignore_case else lines
         )
-        return await asyncio.to_thread(self.model.encode, lines_for_embedding)
+        async with self._lock:
+            return await asyncio.to_thread(self.model.encode, lines_for_embedding)
 
     @staticmethod
     def normalize_lines(raw_lines: List[str]) -> List[str]:
@@ -71,7 +73,7 @@ class DocumentLoader:
         self, file_path: str, lines: List[str]
     ) -> Optional[Document]:
         """Creates a Document from lines of text."""
-        embeddings = await self.encode(lines, self.ignore_case)
+        embeddings = await self.encode(lines)
 
         return Document(
             path=file_path, lines=lines, embeddings=np.array(embeddings)

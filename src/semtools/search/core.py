@@ -26,6 +26,7 @@ class Searcher:
         model_name: EmbeddingModel = EmbeddingModel.POTION_MULTI_LINGUAL_128M,
     ):
         self.model = model or StaticModel.from_pretrained(model_name)
+        self.processing_semaphore = asyncio.Semaphore(10)  # Limit concurrent file processing
 
     async def search(
         self,
@@ -43,7 +44,7 @@ class Searcher:
             raise ValueError("Query cannot be empty.")
 
         doc_loader = DocumentLoader(self.model, ignore_case=ignore_case)
-        query_embedding_array = await doc_loader.encode([query], ignore_case)
+        query_embedding_array = await doc_loader.encode([query])
         query_embedding = query_embedding_array[0]
 
         if os.getenv("SEMTOOLS_WORKSPACE") and files:
@@ -98,33 +99,34 @@ class Searcher:
     async def _process_file_for_workspace(
         self, file_path: str, existing_docs: dict, doc_loader: DocumentLoader
     ):
-        """Async helper to check and process a single file for workspace update."""
-        try:
-            stat = await aiofiles.os.stat(file_path)
-            current_meta = DocMeta(
-                path=file_path, size_bytes=stat.st_size, mtime=int(stat.st_mtime)
-            )
-        except FileNotFoundError:
+        """Async helper to check and process a single file for workspace update, with concurrency limiting."""
+        async with self.processing_semaphore:
+            try:
+                stat = await aiofiles.os.stat(file_path)
+                current_meta = DocMeta(
+                    path=file_path, size_bytes=stat.st_size, mtime=int(stat.st_mtime)
+                )
+            except FileNotFoundError:
+                return None, None
+
+            existing_meta = existing_docs.get(file_path)
+            if (
+                not existing_meta
+                or existing_meta.mtime != current_meta.mtime
+                or existing_meta.size_bytes != current_meta.size_bytes
+            ):
+                doc = await doc_loader.load_file(file_path)
+
+                if not doc or not doc.lines:
+                    return [], current_meta
+
+                lines_to_upsert = [
+                    LineEmbedding(path=doc.path, line_number=i, embedding=emb.tolist())
+                    for i, emb in enumerate(doc.embeddings)
+                ]
+                return lines_to_upsert, current_meta
+
             return None, None
-
-        existing_meta = existing_docs.get(file_path)
-        if (
-            not existing_meta
-            or existing_meta.mtime != current_meta.mtime
-            or existing_meta.size_bytes != current_meta.size_bytes
-        ):
-            doc = await doc_loader.load_file(file_path)
-
-            if not doc or not doc.lines:
-                return [], current_meta
-
-            lines_to_upsert = [
-                LineEmbedding(path=doc.path, line_number=i, embedding=emb.tolist())
-                for i, emb in enumerate(doc.embeddings)
-            ]
-            return lines_to_upsert, current_meta
-
-        return None, None
 
     async def _search_with_workspace(
         self,
