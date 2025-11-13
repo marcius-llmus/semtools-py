@@ -339,3 +339,8 @@ diffs.md
 tailwindcss
 .idea
 *.db
+
+# Benchmark related
+benchmarks/arxiv/results/
+benchmarks/arxiv/results/arxiv_dataset_1000_papers
+arxiv_dataset_1000_papers
