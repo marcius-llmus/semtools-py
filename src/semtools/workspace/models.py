@@ -10,6 +10,7 @@ class WorkspaceConfig:
     root_dir: str = ""
     in_batch_size: int = 5_000
     oversample_factor: int = 3
+    file_process_chunk_size: int = 50
 
 
 @dataclass

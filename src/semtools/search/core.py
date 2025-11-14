@@ -67,6 +67,9 @@ class Searcher:
         raw_results = []
         for doc in documents:
             for i, line_embedding in enumerate(doc.embeddings):
+                # Skip zero vectors to prevent NaN distances from cosine similarity
+                if not np.any(line_embedding):
+                    continue
                 distance = cosine(query_embedding, line_embedding)
                 if max_distance is None or distance <= max_distance:
                     raw_results.append(
@@ -120,9 +123,12 @@ class Searcher:
                 if not doc or not doc.lines:
                     return [], current_meta
 
-                lines_to_upsert = [
-                    LineEmbedding(path=doc.path, line_number=i, embedding=emb.tolist())
+                lines_to_upsert = [ 
+                    LineEmbedding(
+                        path=doc.path, line_number=i, embedding=emb.tolist()
+                    )
                     for i, emb in enumerate(doc.embeddings)
+                    if np.any(emb)  # Filter out zero vectors
                 ]
                 return lines_to_upsert, current_meta
 
@@ -140,22 +146,28 @@ class Searcher:
         ws = Workspace.open()
         store = await Store.create(ws.config)
 
-        # 1. Analyze document states concurrently
+        # 1. Analyze document states concurrently, but in batches to conserve memory.
         existing_docs = await store.get_existing_docs(files)
 
-        tasks = [
-            self._process_file_for_workspace(fp, existing_docs, doc_loader) for fp in files
-        ]
-        results = await asyncio.gather(*tasks)
+        file_chunks = Store._chunk_list(files, ws.config.file_process_chunk_size)
 
-        all_lines_to_upsert = [line for res in results if res[0] for line in res[0]]
-        all_docs_to_upsert = [res[1] for res in results if res[1]]
+        for chunk in file_chunks:
+            tasks = [
+                self._process_file_for_workspace(fp, existing_docs, doc_loader)
+                for fp in chunk
+            ]
+            results = await asyncio.gather(*tasks)
 
-        # 2. Update workspace if necessary (run in thread to not block)
-        if all_lines_to_upsert:
-            await store.upsert_line_embeddings(all_lines_to_upsert)
-        if all_docs_to_upsert:
-            await store.upsert_document_metadata(all_docs_to_upsert)
+            all_lines_to_upsert = [
+                line for res in results if res[0] for line in res[0]
+            ]
+            all_docs_to_upsert = [res[1] for res in results if res[1]]
+
+            # 2. Update workspace if necessary (per chunk)
+            if all_lines_to_upsert:
+                await store.upsert_line_embeddings(all_lines_to_upsert)
+            if all_docs_to_upsert:
+                await store.upsert_document_metadata(all_docs_to_upsert)
 
         # 3. Search the workspace
         return await store.search_line_embeddings(
