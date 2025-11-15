@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import time
@@ -237,17 +236,14 @@ class Evaluator:
         print(f"\n--- Evaluating Query ID: {question.query_id} ---")
 
         # 1. Build and run `search` command
-        escaped_query = shlex.quote(question.query_text)
+        # Use json.dumps to produce a clean, double-quoted string suitable for shell.
+        escaped_query = json.dumps(question.query_text)
         cmd_parts = [f"search {escaped_query} full_text/*.txt", f"--top-k {top_k}", f"--n-lines {n_lines}"]
-        display_parts = [f"search {json.dumps(question.query_text)} full_text/*.txt", f"--top-k {top_k}", f"--n-lines {n_lines}"]
         if max_distance is not None:
             cmd_parts.append(f"--max-distance {max_distance}")
-            display_parts.append(f"--max-distance {max_distance}")
 
-        search_cmd_for_exec = " ".join(cmd_parts)
-        search_cmd_for_display = " ".join(display_parts)
-
-        search_stdout, search_stderr = self._run_command(search_cmd_for_exec)
+        search_cmd = " ".join(cmd_parts)
+        search_stdout, search_stderr = self._run_command(search_cmd)
         returned_documents = self._parse_output_for_paths(search_stdout)
         full_output = search_stdout or search_stderr
 
@@ -269,7 +265,7 @@ class Evaluator:
             retrieval_recall=recall,
             llm_synthesized_answer=synthesized_answer,
             synthesis_prompt=synthesis_prompt,
-            search_command=search_cmd_for_display,
+            search_command=search_cmd,
         )
 
 

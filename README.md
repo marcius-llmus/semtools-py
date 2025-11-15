@@ -107,6 +107,45 @@ After this setup, the `parse`, `search`, and `workspace` commands are available 
 # Now you can run the commands from your local code
 parse ./my_docs/*.pdf --verbose
 search "local development" ./**/*.py
+
+### Programmatic Usage (as a Library)
+
+You can also use `semtools` directly in your Python code. The core logic is exposed through classes like `Searcher`.
+
+Here is an example of how to perform a search programmatically:
+
+import asyncio
+from pathlib import Path
+from semtools.search import Searcher
+
+async def main():
+    # Create a dummy file to search in
+    p = Path("my_document.txt")
+    p.write_text("The quick brown fox jumps over the lazy dog.\nAnother line about something else.")
+
+    # Instantiate the searcher
+    searcher = Searcher()
+
+    # Perform the search (note that it's an async operation)
+    query = "fast animal"
+    files = [str(p)]
+    results = await searcher.search(query=query, files=files, top_k=1)
+
+    # Process the results
+    if results:
+        print(f"Found {len(results)} result(s):")
+        for result in results:
+            print(f"  - Path: {result.path}")
+            print(f"    Line: {result.line_number + 1}")  # +1 for 1-based indexing
+            print(f"    Distance: {result.distance:.4f}")
+    else:
+        print("No results found.")
+    
+    # Clean up the dummy file
+    p.unlink()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## CLI Help
@@ -187,21 +226,26 @@ The benchmark uses a powerful LLM (Google's Gemini) as an "Oracle" to generate c
 
 ### Running the Benchmark
 
-1.  Ensure you have the development dependencies installed:
+1.  **Get the Source Code**: The benchmark scripts are part of the development repository and not included in the PyPI package. Clone the repository to get the necessary files:
     ```bash
-    pip install "semtools-py[dev]"
+    git clone https://github.com/your-repo/semtools-py.git
+    cd semtools-py
     ```
-2.  Set your Gemini API key:
+2.  **Install Dependencies**: Ensure you have the development dependencies installed:
+    ```bash
+    pip install -e ".[dev]"
+    ```
+3.  **Set API Key**: Set your Gemini API key:
     ```bash
     export GEMINI_API_KEY="your_gemini_api_key"
     ```
-3.  Download the benchmark dataset:
+4.  **Download Data**: Download the benchmark dataset:
     ```bash
-    python -m benchmarks.arxiv.download_arxiv_files
+    python benchmarks/arxiv/download_arxiv_files.py
     ```
-4.  Run the benchmark:
+5.  **Run**: Run the benchmark:
     ```bash
-    python -m benchmarks.arxiv.benchmark --mode workspace
+    python benchmarks/arxiv/benchmark.py --mode workspace
     ```
     A report file (`benchmark_qualitative_report_workspace.md`) will be created in the `benchmarks/arxiv` directory.
 
