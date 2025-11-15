@@ -1183,7 +1183,6 @@ source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
     { name = "click" },
-    { name = "google-generativeai" },
     { name = "httpx" },
     { name = "lancedb" },
     { name = "model2vec" },
@@ -1195,6 +1194,7 @@ dependencies = [
 dev = [
     { name = "arxiv" },
     { name = "beautifulsoup4" },
+    { name = "google-generativeai" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-mock" },
@@ -1206,7 +1206,6 @@ dev = [
 requires-dist = [
     { name = "aiofiles" },
     { name = "click" },
-    { name = "google-generativeai" },
     { name = "httpx" },
     { name = "lancedb" },
     { name = "model2vec" },
@@ -1218,6 +1217,7 @@ requires-dist = [
 dev = [
     { name = "arxiv", specifier = ">=2.3.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.2" },
+    { name = "google-generativeai" },
     { name = "pytest", specifier = ">=7.4.3,<8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.8" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
