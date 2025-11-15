@@ -1,3 +1,5 @@
+This is the python version of https://github.com/run-llama/semtools (thanks to LlamaIndex!)
+
 # SemTools for Python
 
 A collection of high-performance command-line tools for document processing and semantic search, built in Python. It leverages modern libraries like `asyncio` for concurrency, `lancedb` for efficient vector storage, and `model2vec` for state-of-the-art local embeddings.
@@ -224,6 +226,10 @@ The `parse` tool requires a LlamaParse API key. It can be configured in two ways
 
 The benchmark uses a powerful LLM (Google's Gemini) as an "Oracle" to generate complex questions and ground truth answers from a set of source documents. It then executes `search` for each question and asks the Oracle to synthesize a new answer using *only* the search results. A final Markdown report is generated comparing the ground truth answer, the search-augmented answer, and retrieval metrics (Precision/Recall).
 
+### Benchmark
+You can find the current benchmark at [https://github.com/marcius-llmus/semtools-py/blob/master/benchmarks/arxiv/benchmark_qualitative_report_workspace.md](Here)
+It was generated from serching close to 1000 research papers. 
+
 ### Running the Benchmark
 
 1.  **Get the Source Code**: The benchmark scripts are part of the development repository and not included in the PyPI package. Clone the repository to get the necessary files:
@@ -256,6 +262,6 @@ This project is licensed under the MIT License.
 ## Acknowledgments
 
 - [LlamaParse](https://cloud.llamaindex.ai) for the powerful document parsing API.
-- [model2vec](https://github.com/johann-petrak/model2vec-py) for the fast, high-quality local embedding generation.
+- [model2vec](https://github.com/MinishLab/model2vec) for the fast, high-quality local embedding generation.
 - [LanceDB](https://lancedb.com/) for the efficient and scalable vector database engine.
 - [minishlab/potion-multilingual-128M](https://huggingface.co/minishlab/potion-multilingual-128M) for the excellent open-source embedding model.
