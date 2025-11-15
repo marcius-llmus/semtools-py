@@ -227,7 +227,7 @@ The `parse` tool requires a LlamaParse API key. It can be configured in two ways
 The benchmark uses a powerful LLM (Google's Gemini) as an "Oracle" to generate complex questions and ground truth answers from a set of source documents. It then executes `search` for each question and asks the Oracle to synthesize a new answer using *only* the search results. A final Markdown report is generated comparing the ground truth answer, the search-augmented answer, and retrieval metrics (Precision/Recall).
 
 ### Benchmark
-You can find the current benchmark at [https://github.com/marcius-llmus/semtools-py/blob/master/benchmarks/arxiv/benchmark_qualitative_report_workspace.md](Here)
+You can find the current benchmark at [Here](https://github.com/marcius-llmus/semtools-py/blob/master/benchmarks/arxiv/benchmark_qualitative_report_workspace.md)
 It was generated from serching close to 1000 research papers. 
 
 ### Running the Benchmark
