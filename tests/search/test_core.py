@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from pathlib import Path
 
+from semtools.workspace import WorkspaceError
 from src.semtools.search.core import Searcher
 from src.semtools.workspace.store import DocMeta, RankedLine
 
@@ -54,6 +55,20 @@ class TestSearcher:
 
         # Assert that the lines sent for embedding were lowercased
         mock_model.encode.assert_any_call(["hello", "hello"])
+
+    @pytest.mark.asyncio
+    @patch("src.semtools.search.core.Workspace.open")
+    @patch("src.semtools.search.loader.DocumentLoader.encode")
+    @patch("os.getenv", return_value="test_ws")
+    async def test_search_fails_early_if_workspace_not_found(
+        self, mock_getenv, mock_encode, mock_ws_open, searcher: Searcher, mock_file: Path
+    ):
+        mock_ws_open.side_effect = WorkspaceError("Workspace not found")
+
+        with pytest.raises(WorkspaceError, match="Workspace not found"):
+            await searcher.search(query="test", files=[str(mock_file)])
+
+        mock_encode.assert_not_awaited()
 
     @pytest.mark.asyncio
     @patch("src.semtools.search.core.Workspace.open")

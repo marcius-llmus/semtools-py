@@ -1,6 +1,8 @@
 import json
 from unittest.mock import patch
 
+import aiofiles
+import aiofiles.os
 import pytest
 
 from semtools.workspace.store import WorkspaceStats
@@ -9,48 +11,55 @@ from src.semtools.workspace.errors import WorkspaceError
 
 
 class TestWorkspace:
-    def test_open_workspace(self, workspace: Workspace):
-        workspace.save()  # Ensure config file exists
+    @pytest.mark.asyncio
+    async def test_open_workspace(self, workspace: Workspace):
+        await workspace.save()  # Ensure config file exists
         with patch("os.getenv", return_value="test_ws"):
-            opened_ws = Workspace.open()
+            opened_ws = await Workspace.open()
 
             assert opened_ws.config.name == "test_ws"
             assert opened_ws.config.root_dir == workspace.config.root_dir
 
-    def test_open_non_existent_workspace_raises_error(self, temp_workspace_dir):
+    @pytest.mark.asyncio
+    async def test_open_non_existent_workspace_raises_error(self, temp_workspace_dir):
         with patch("os.getenv", return_value="non_existent_ws"):
             with pytest.raises(WorkspaceError, match="not found"):
-                Workspace.open()
+                await Workspace.open()
 
-    def test_save_workspace_config(self, workspace: Workspace):
-        workspace.save()
+    @pytest.mark.asyncio
+    async def test_save_workspace_config(self, workspace: Workspace):
+        await workspace.save()
 
         config_path = workspace._get_config_path_for("test_ws")
-        assert config_path.exists()
-        with open(config_path, "r") as f:
-            data = json.load(f)
+        assert await aiofiles.os.path.exists(config_path)
+        async with aiofiles.open(config_path, "r") as f:
+            content = await f.read()
+            data = json.loads(content)
         assert data["name"] == "test_ws"
 
-    def test_create_or_use_workspace(self, temp_workspace_dir):
+    @pytest.mark.asyncio
+    async def test_create_or_use_workspace(self, temp_workspace_dir):
         ws_path = temp_workspace_dir.parent / "created_ws"
 
         with patch("src.semtools.workspace.core.APP_HOME_DIR", ws_path.parent.parent):
-            Workspace.create_or_use("created_ws")
+            await Workspace.create_or_use("created_ws")
 
         config_path = ws_path / "config.json"
-        assert config_path.exists()
+        assert await aiofiles.os.path.exists(config_path)
 
-    def test_delete_workspace(self, workspace: Workspace):
-        workspace.save()
+    @pytest.mark.asyncio
+    async def test_delete_workspace(self, workspace: Workspace):
+        await workspace.save()
         ws_path = workspace._get_root_path(workspace.config.name)
-        assert ws_path.exists()
+        assert await aiofiles.os.path.exists(ws_path)
 
-        Workspace.delete(workspace.config.name)
-        assert not ws_path.exists()
+        await Workspace.delete(workspace.config.name)
+        assert not await aiofiles.os.path.exists(ws_path)
 
-    def test_delete_non_existent_workspace(self):
+    @pytest.mark.asyncio
+    async def test_delete_non_existent_workspace(self):
         with pytest.raises(WorkspaceError):
-            Workspace.delete("non_existent_ws")
+            await Workspace.delete("non_existent_ws")
 
     @pytest.mark.asyncio
     async def test_get_status(self, workspace: Workspace, mocker):

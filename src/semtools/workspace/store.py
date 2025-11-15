@@ -56,7 +56,7 @@ class Store:
         self.config = config
 
     @staticmethod
-    def _chunk_list(data: List, chunk_size: int) -> List[List]:
+    def chunk_list(data: List, chunk_size: int) -> List[List]:
         """Yield successive n-sized chunks from a list."""
         if not data:
             return []
@@ -84,7 +84,7 @@ class Store:
         existing_docs = {}
         tbl = await self.db.open_table("documents")
 
-        for chunk in self._chunk_list(paths, self.config.in_batch_size):
+        for chunk in self.chunk_list(paths, self.config.in_batch_size):
             path_filter = self._build_path_filter(chunk)
             results = await tbl.query().where(path_filter).to_list()
             for r in results:
@@ -98,7 +98,7 @@ class Store:
         if not paths or "documents" not in await self.db.table_names():
             return
         tbl = await self.db.open_table("documents")
-        for chunk in self._chunk_list(paths, self.config.in_batch_size):
+        for chunk in self.chunk_list(paths, self.config.in_batch_size):
             path_filter = self._build_path_filter(chunk)
             await tbl.delete(path_filter)
 
@@ -106,7 +106,7 @@ class Store:
         if not paths or "line_embeddings" not in await self.db.table_names():
             return
         tbl = await self.db.open_table("line_embeddings")
-        for chunk in self._chunk_list(paths, self.config.in_batch_size):
+        for chunk in self.chunk_list(paths, self.config.in_batch_size):
             path_filter = self._build_path_filter(chunk)
             await tbl.delete(path_filter)
 
@@ -238,7 +238,7 @@ class Store:
         all_results = []
         tbl = await self.db.open_table("line_embeddings")
 
-        for chunk in self._chunk_list(subset_paths, self.config.in_batch_size):
+        for chunk in self.chunk_list(subset_paths, self.config.in_batch_size):
             path_filter = self._build_path_filter(chunk)
             query = (
                 tbl.vector_search(query_vec)

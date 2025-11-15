@@ -7,7 +7,7 @@ from .parse import LlamaParseBackend
 from .parse.enums import ParseBackendType
 from .search import Searcher
 from .search.presenter import SearchResultFormatter
-from .workspace import Workspace
+from .workspace import Workspace, WorkspaceError
 
 
 @click.command(help="A CLI tool for parsing documents using various backends")
@@ -62,7 +62,7 @@ def search(query, files, n_lines, top_k, max_distance, ignore_case):
     try:
         results = asyncio.run(
             searcher.search(query, files, top_k, max_distance, ignore_case))
-    except ValueError as e:
+    except (ValueError, WorkspaceError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -94,7 +94,7 @@ def workspace():
 @click.argument("name")
 def use_workspace(name):
     try:
-        Workspace.create_or_use(name)
+        asyncio.run(Workspace.create_or_use(name))
         click.echo(f"Workspace '{name}' configured.")
         click.echo("To activate it, run:")
         click.echo(f"  export SEMTOOLS_WORKSPACE={name}")
@@ -116,7 +116,7 @@ def delete_workspace(name):
         return
 
     try:
-        Workspace.delete(name)
+        asyncio.run(Workspace.delete(name))
         click.echo(f"Workspace '{name}' has been deleted.")
         click.echo(f"If you had 'export SEMTOOLS_WORKSPACE={name}' in your shell, you should remove it.")
     except Exception as e:
@@ -127,8 +127,7 @@ def delete_workspace(name):
 @workspace.command("status", help="Show active workspace and basic stats")
 def status_workspace():
     try:
-        ws = Workspace.open()
-        stats = asyncio.run(ws.get_status())
+        ws, stats = asyncio.run(Workspace.get_active_workspace_with_stats())
 
         click.echo(f"Active workspace: {ws.config.name}")
         click.echo(f"Root: {ws.config.root_dir}")
@@ -147,8 +146,7 @@ def status_workspace():
 @workspace.command("prune", help="Remove stale or missing files from store")
 def prune_workspace():
     try:
-        ws = Workspace.open()
-        missing_paths = asyncio.run(ws.prune())
+        missing_paths = asyncio.run(Workspace.prune_active_workspace())
 
         if not missing_paths:
             click.echo("No stale documents found. Workspace is clean.")

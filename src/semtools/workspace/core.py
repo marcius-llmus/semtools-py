@@ -8,8 +8,8 @@ from pathlib import Path
 
 from ..config import APP_HOME_DIR
 from .errors import WorkspaceError
-from .models import WorkspaceConfig
-from .store import Store, WorkspaceStats
+from .models import WorkspaceConfig, WorkspaceStats
+from .store import Store
 
 
 class Workspace:
@@ -19,29 +19,36 @@ class Workspace:
         self.config = config
 
     @classmethod
-    def open(cls) -> "Workspace":
-        """Opens the active workspace configuration."""
+    async def open(cls) -> "Workspace":
+        """Asynchronously opens the active workspace configuration."""
         active_name = cls.get_active_workspace_name()
         config_path = cls._get_config_path_for(active_name)
 
-        if not config_path.exists():
+        if not await aiofiles.os.path.exists(config_path):
             raise WorkspaceError(
                 f"Workspace '{active_name}' not found. Run 'workspace use {active_name}' to create it."
             )
 
-        with open(config_path, "r") as f:
-            config_data = json.load(f)
+        async with aiofiles.open(config_path, "r") as f:
+            content = await f.read()
+            config_data = json.loads(content)
         config = WorkspaceConfig(**config_data)
 
         return cls(config)
 
-    def save(self) -> None:
+    @classmethod
+    async def prune_active_workspace(cls) -> list[str]:
+        """Opens the active workspace and prunes it."""
+        ws = await cls.open()
+        return await ws.prune()
+
+    async def save(self) -> None:
         """Saves the current workspace configuration to disk."""
         config_path = self._get_config_path_for(self.config.name)
 
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
-            json.dump(asdict(self.config), f, indent=2)
+        await aiofiles.os.makedirs(config_path.parent, exist_ok=True)
+        async with aiofiles.open(config_path, "w") as f:
+            await f.write(json.dumps(asdict(self.config), indent=2))
 
     @staticmethod
     def get_active_workspace_name() -> str:
@@ -64,22 +71,29 @@ class Workspace:
         return cls._get_root_path(name) / "config.json"
 
     @classmethod
-    def create_or_use(cls, name: str) -> None:
+    async def create_or_use(cls, name: str) -> None:
         """Configures a new or existing workspace."""
         config_path = cls._get_config_path_for(name)
-        if not config_path.exists():
+        if not await aiofiles.os.path.exists(config_path):
             root_dir = cls._get_root_path(name)
             config = cls(config=WorkspaceConfig(name=name, root_dir=str(root_dir)))
-            config.save()
+            await config.save()
 
     @classmethod
-    def delete(cls, name: str) -> None:
+    async def delete(cls, name: str) -> None:
         """Permanently deletes a workspace and all its data."""
         root_path = cls._get_root_path(name)
-        if not root_path.exists():
+        if not await aiofiles.os.path.exists(root_path):
             raise WorkspaceError(f"Workspace '{name}' not found at {root_path}")
 
-        shutil.rmtree(root_path)
+        await asyncio.to_thread(shutil.rmtree, root_path)
+
+    @classmethod
+    async def get_active_workspace_with_stats(cls) -> tuple["Workspace", "WorkspaceStats"]:
+        """Opens the active workspace and gets its stats."""
+        ws = await cls.open()
+        stats = await ws.get_status()
+        return ws, stats
 
     async def get_status(self) -> WorkspaceStats:
         """Gets status and basic stats for the workspace."""

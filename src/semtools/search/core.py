@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from model2vec import StaticModel
 
-from ..workspace import Store, Workspace
+from ..workspace import Store, Workspace, WorkspaceError
 from ..workspace.store import DocMeta, LineEmbedding, RankedLine
 from .enums import EmbeddingModel
 from .loader import DocumentLoader
@@ -43,15 +43,19 @@ class Searcher:
         if not query or not query.strip():
             raise ValueError("Query cannot be empty.")
 
+        ws = None
+        if os.getenv("SEMTOOLS_WORKSPACE") and files:
+            # Validate workspace exists before doing any expensive work
+            ws = await Workspace.open()
+
         doc_loader = DocumentLoader(self.model, ignore_case=ignore_case)
         query_embedding_array = await doc_loader.encode([query])
         query_embedding = query_embedding_array[0]
 
-        if os.getenv("SEMTOOLS_WORKSPACE") and files:
+        if ws:
             return await self._search_with_workspace(
-                query_embedding, files, top_k, max_distance, doc_loader
+                ws, query_embedding, files, top_k, max_distance, doc_loader
             )
-        # todo make async later because I am too lazy right now lol
         return await self._search_in_memory(
             query_embedding, files, top_k, max_distance, doc_loader
         )
@@ -136,6 +140,7 @@ class Searcher:
 
     async def _search_with_workspace(
         self,
+        ws: Workspace,
         query_embedding: np.ndarray,
         files: List[str],
         top_k: int,
@@ -143,13 +148,12 @@ class Searcher:
         doc_loader: DocumentLoader,
     ) -> List[RankedLine]:
         """Handles the search logic when a workspace is active."""
-        ws = Workspace.open()
         store = await Store.create(ws.config)
 
         # 1. Analyze document states concurrently, but in batches to conserve memory.
         existing_docs = await store.get_existing_docs(files)
 
-        file_chunks = Store._chunk_list(files, ws.config.file_process_chunk_size)
+        file_chunks = Store.chunk_list(files, ws.config.file_process_chunk_size)
 
         for chunk in file_chunks:
             tasks = [
