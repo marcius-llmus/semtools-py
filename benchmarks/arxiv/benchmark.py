@@ -5,9 +5,8 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Set
 
@@ -16,8 +15,7 @@ import tiktoken
 
 # --- Configuration ---
 DATASET_DIR = Path("benchmarks/arxiv/arxiv_dataset_1000_papers")
-LLM_ORACLE_MODEL = "gemini-2.5-pro"
-
+LLM_ORACLE_MODEL = "gemini-2.5-flash"
 
 # A curated set of files with a clear chronological and topical spread.
 CURATED_FILE_SET = [
@@ -43,7 +41,7 @@ class GeneratedQuestion:
     ground_truth_answer: str
     source_documents: Set[str]
     generation_prompt: str = ""
-    
+
 
 @dataclass
 class EvaluationResult:
@@ -53,6 +51,8 @@ class EvaluationResult:
     search_stdout: str
     returned_documents: Set[str]
     llm_synthesized_answer: str
+    retrieval_precision: float
+    retrieval_recall: float
     synthesis_prompt: str = ""
     search_command: str = ""
 
@@ -72,15 +72,13 @@ class GeminiOracle:
         """Counts tokens for the given text using tiktoken."""
         return len(self.tokenizer.encode(text))
 
-    def generate_questions_and_answers(
-        self, aggregated_content: str, source_files: List[str]
-    ) -> List[GeneratedQuestion]:
+    def generate_questions_and_answers(self, aggregated_content: str) -> List[GeneratedQuestion]:
         """Generates questions, ground truth answers, and source document lists."""
         print("Oracle: Generating questions and ground truth answers from curated files...")
 
         prompt = f"""
         You are an expert researcher. I will provide you with the full text content from several research papers.
-        Your task is to generate a set of 9 high-quality questions based *only* based on the provided text.
+        Your task is to generate a set of 9 high-quality questions based *only* on the provided text.
         The questions must fall into three specific categories:
 
         1.  **Simple Semantic Queries (3 questions):** Each question should be answerable using information found predominantly within a SINGLE one of the provided documents.
@@ -141,11 +139,10 @@ class GeminiOracle:
                     time.sleep(5)
 
         error_message = f"Oracle: Failed to generate or parse questions after all retries. Error: {last_exception}\n"
-        error_message += f"Raw response was: {response.text if 'response' in locals() and hasattr(response, 'text') else 'N/A'}"
         raise RuntimeError(error_message) from last_exception
 
     def synthesize_answer_from_snippets(
-        self, question_text: str, search_stdout: str
+            self, question_text: str, search_stdout: str
     ) -> tuple[str, str]:
         """Asks the LLM to synthesize an answer using only the provided search snippets."""
         print(f"Oracle: Synthesizing answer for query: '{question_text[:50]}...'")
@@ -193,7 +190,6 @@ class GeminiOracle:
                     time.sleep(5)
 
         error_message = f"Oracle: Failed to synthesize answer after all retries. Error: {last_exception}\n"
-        error_message += f"Raw response was: {response.text if 'response' in locals() and hasattr(response, 'text') else 'N/A'}"
         raise RuntimeError(error_message) from last_exception
 
 
@@ -221,30 +217,46 @@ class Evaluator:
         except subprocess.TimeoutExpired as e:
             return e.stdout or "", e.stderr or "Timeout expired."
 
-    def _parse_output_for_paths(self, stdout: str) -> Set[str]:
+    @staticmethod
+    def _parse_output_for_paths(stdout: str) -> Set[str]:
         """Extracts unique file paths from tool output."""
-        paths = re.findall(r"^[\w\/\.\-]+?\.txt", stdout, re.MULTILINE)
+        paths = re.findall(r"^[\w/.\-]+?\.txt", stdout, re.MULTILINE)
         return set(paths)
 
     def evaluate_question(
-        self, question: GeneratedQuestion, oracle: GeminiOracle
+        self,
+        question: GeneratedQuestion,
+        oracle: GeminiOracle,
+        top_k: int,
+        n_lines: int,
+        max_distance: float | None,
     ) -> EvaluationResult:
         """
         Runs `search`, gets a synthesized answer from the Oracle, and returns the result.
         """
         print(f"\n--- Evaluating Query ID: {question.query_id} ---")
 
-        # 1. Run `search`
+        # 1. Build and run `search` command
         escaped_query = shlex.quote(question.query_text)
-        search_cmd_for_exec = f'search {escaped_query} full_text/*.txt --top-k 10 --n-lines 7'
-        # Use json.dumps for a clean, safely quoted version for the report
-        search_cmd_for_display = f'search {json.dumps(question.query_text)} full_text/*.txt --top-k 10 --n-lines 7'
+        cmd_parts = [f"search {escaped_query} full_text/*.txt", f"--top-k {top_k}", f"--n-lines {n_lines}"]
+        display_parts = [f"search {json.dumps(question.query_text)} full_text/*.txt", f"--top-k {top_k}", f"--n-lines {n_lines}"]
+        if max_distance is not None:
+            cmd_parts.append(f"--max-distance {max_distance}")
+            display_parts.append(f"--max-distance {max_distance}")
+
+        search_cmd_for_exec = " ".join(cmd_parts)
+        search_cmd_for_display = " ".join(display_parts)
 
         search_stdout, search_stderr = self._run_command(search_cmd_for_exec)
         returned_documents = self._parse_output_for_paths(search_stdout)
         full_output = search_stdout or search_stderr
 
-        # 2. Get synthesized answer from Oracle
+        # 2. Calculate retrieval metrics
+        true_positives = len(question.source_documents.intersection(returned_documents))
+        precision = true_positives / len(returned_documents) if returned_documents else 0.0
+        recall = true_positives / len(question.source_documents) if question.source_documents else 0.0
+
+        # 3. Get synthesized answer from Oracle
         synthesized_answer, synthesis_prompt = oracle.synthesize_answer_from_snippets(
             question.query_text, full_output
         )
@@ -253,6 +265,8 @@ class Evaluator:
             question=question,
             search_stdout=full_output,
             returned_documents=returned_documents,
+            retrieval_precision=precision,
+            retrieval_recall=recall,
             llm_synthesized_answer=synthesized_answer,
             synthesis_prompt=synthesis_prompt,
             search_command=search_cmd_for_display,
@@ -262,14 +276,16 @@ class Evaluator:
 class ReportGenerator:
     """Generates a qualitative Markdown report from evaluation results."""
 
-    def generate(self, results: List[EvaluationResult], output_file: Path):
+    def generate(self, results: List[EvaluationResult], output_file: Path, mode: str):
         """Writes the full report to a file."""
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"# Semtools Qualitative Benchmark Report ({LLM_ORACLE_MODEL})\n\n")
+            f.write(f"# Semtools Qualitative Benchmark Report\n\n")
+            f.write(f"- **Mode:** `{mode}`\n- **Oracle:** `{LLM_ORACLE_MODEL}`\n\n")
             self._write_detailed_results(f, results)
         print(f"\n--- Benchmark complete. Report generated at: {output_file} ---")
 
-    def _write_detailed_results(self, f, results: List[EvaluationResult]):
+    @staticmethod
+    def _write_detailed_results(f, results: List[EvaluationResult]):
         f.write("\n## Detailed Analysis per Query\n\n")
         for i, res in enumerate(results):
             if i > 0:
@@ -288,6 +304,8 @@ class ReportGenerator:
             f.write("#### `search` Tool Performance\n\n")
             f.write(f"**Command Executed:**\n\n")
             f.write(f"```bash\n{res.search_command}\n```\n\n")
+            f.write(f"**Retrieval Precision:** `{res.retrieval_precision:.2f}`\n")
+            f.write(f"**Retrieval Recall:** `{res.retrieval_recall:.2f}`\n\n")
             f.write(f"**Documents Returned by `search`:** `{', '.join(sorted(res.returned_documents)) or 'None'}`\n\n")
             f.write("#### LLM Search-Augmented Answer\n\n")
             f.write(f"> {'\n> '.join(res.llm_synthesized_answer.splitlines())}\n\n")
@@ -316,6 +334,24 @@ def main():
         "--keep-workspace",
         action="store_true",
         help="Do not delete and re-prime the workspace if it already exists.",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=10,
+        help="The --top-k parameter to pass to the search command.",
+    )
+    parser.add_argument(
+        "--n-lines",
+        type=int,
+        default=7,
+        help="The --n-lines parameter to pass to the search command.",
+    )
+    parser.add_argument(
+        "--max-distance",
+        type=float,
+        default=None,
+        help="The --max-distance parameter to pass to the search command.",
     )
     args = parser.parse_args()
 
@@ -363,15 +399,21 @@ def main():
     print("\n--- Aggregating content from curated files for Oracle ---")
     aggregated_content_parts = [
         f"--- DOCUMENT: {fp} ---\n{(DATASET_DIR / fp).read_text(encoding='utf-8')}"
-        for fp in CURATED_FILE_SET if (DATASET_DIR / fp).exists()
+        for fp in CURATED_FILE_SET  # do raise if not exists
     ]
     aggregated_content = "\n\n".join(aggregated_content_parts)
-    questions_to_run = oracle.generate_questions_and_answers(aggregated_content, CURATED_FILE_SET)
+    questions_to_run = oracle.generate_questions_and_answers(aggregated_content)
 
     # --- Evaluation Loop & Report ---
-    all_evaluations = [evaluator.evaluate_question(q, oracle) for q in questions_to_run]
+    all_evaluations = [
+        evaluator.evaluate_question(
+            q, oracle, top_k=args.top_k, n_lines=args.n_lines, max_distance=args.max_distance
+        )
+        for q in questions_to_run
+    ]
     report_path = Path(f"benchmark_qualitative_report_{args.mode}.md")
-    report_generator.generate(all_evaluations, report_path)
+    report_generator.generate(all_evaluations, report_path, mode=args.mode)
+
 
 if __name__ == "__main__":
     main()
